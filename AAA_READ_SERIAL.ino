@@ -10,8 +10,9 @@
  * - Flushes stale UART data BEFORE enabling the P1 output.
  * - Keeps the existing project's parseTelegram()/MQTT/web code compatible.
  * - Adds a complete SX631 register decoder for the E.ON/Hungarian P1 set,
- *   including L1/L2/L3 voltage, current, import/export power and power factor,
- *   plus total active/reactive energy and reactive power.
+ *   including L1/L2/L3 voltage, current, import/export power and power factor.
+ *   Reactive energy/reactive power are deliberately NOT decoded and are not
+ *   part of the SX631Registers struct (MQTT format 2 must not reference them).
  *
  * SX631/S34U18: 115200 8N1, inverted RX.
  */

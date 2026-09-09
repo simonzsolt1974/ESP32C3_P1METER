@@ -27,7 +27,7 @@ void handleForms(AsyncWebServerRequest *request) {
         // a checkbox has only a parameter when checked so we check only "is there a param"
         if(request->hasParam("ts")) DTS = true;  else  DTS = false;
         wifiConfigsave();
-        actionFlag=25; // recalculate with these settings 
+        actionFlag = 25; // handled in test_actionFlag(): re-fetch NTP time with the new settings
         return;
      } else
      

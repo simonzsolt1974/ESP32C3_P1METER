@@ -26,7 +26,6 @@
 #include "OTA.h"
 #include <Update.h>
 //#include <Hash.h>
-#include "PSACrypto.h"
 
 
 #include <TimeLib.h>
@@ -35,8 +34,6 @@
 
 #include "soc/soc.h"           // ha for brownout
 #include "soc/rtc_cntl_reg.h"  // ha for brownout
-#include <esp_task_wdt.h>      // ha
-#include <rtc_wdt.h>
 
 #include "SPIFFS.h"
 #include "FS.h"
@@ -56,31 +53,7 @@ this software switches  small amount of white leds
 by putting some gpio's in parallel
 to source more current.
  */ 
-#include <esp_wifi.h>   //Used for mpdu_rx_disable android workaround 
-#include <WiFi.h>
-#include <DNSServer.h> 
-
-//#include "OTA.H"
-#include <Update.h>
-//#include <Hash.h>
-
 #define VERSION  "ESP32C3-P1METER"
-
-#include <TimeLib.h>
-#include <time.h>
-#include <sunMoon.h>
-
-//#include "soc/soc.h" // ha for brownout
-//#include "soc/rtc_cntl_reg.h" // ha for brownout
-//#include <esp_task_wdt.h> // ha
-//#include "soc/rtc_wdt.h"
-           
-#include "SPIFFS.h"
-#include "FS.h"
-#include <EEPROM.h>
-#include <ArduinoJson.h>
-//#include "AsyncJson.h"
-#include <Arduino.h>
 
 //#include <AsyncTCP.h>
 //#include "Async_TCP.h" //we include the customized one
@@ -247,10 +220,8 @@ int securityLevel = 0;
 //ol endsign = false;
 bool testTelegram = false;
 char timeStamp[12]={"not polled"};
-// bluetooth settings and vars
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
+// bluetooth: leftover from an ESP32-classic sibling project.
+// This sketch does not use Bluetooth, so the old #error block was removed.
 
 //bool blueTooth = false;
 //BluetoothSerial SerialBT;
@@ -386,10 +357,9 @@ if(pollFreq != 0)
           consoleOut(toLog);
         }
         laatsteMeting += 1000UL * pollFreq ; // 
-        // the p1 meter only transmits when the rx line = high
-        digitalWrite(P1_ENABLE, HIGH);
-        meterPoll(); 
-        digitalWrite(P1_ENABLE, LOW);
+        // meterPoll() drives P1_ENABLE itself:
+        // LOW -> flush stale uart -> HIGH -> ... -> LOW at the end.
+        meterPoll();
    }
 }
 

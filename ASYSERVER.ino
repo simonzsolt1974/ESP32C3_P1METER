@@ -202,7 +202,6 @@ server.on("/get.Data", HTTP_GET, [](AsyncWebServerRequest *request) {
     root["gAs"] = round3(meter.gas); 
     root["threeP"] = threePhase; 
     root["rm"] = remote;
-   
     serializeJson(root, * response);
     request->send(response);
 });
@@ -224,8 +223,8 @@ server.on("/api/v1/data", HTTP_GET, [](AsyncWebServerRequest *request)
     JsonDocument root; //(length current 291);
     
     root["smr_version"] = String(meter.smr);
-    root["meter_model"] = meterType;
-    root["wifi_ssid"] = "WiFi.SSID()";
+    root["meter_model"] = "SANXING SX631 / S34U18"; // HomeWizard sends a string
+    root["wifi_ssid"]  = WiFi.SSID();               // was the literal text "WiFi.SSID()"
     root["wifi_strength"] = WiFi.RSSI();
     root["total_power_import_t1_kwh"] = round3(meter.con_ht); // tariff 1
     root["total_power_import_t2_kwh"] = round3(meter.con_lt); // tariff 2
@@ -249,9 +248,7 @@ server.on("/api/v1/data", HTTP_GET, [](AsyncWebServerRequest *request)
     String jsonString;
     serializeJson(root, * response);
 
-    // Final heap check
-    actionFlag = 130;
-    request->send(response);  
+    request->send(response);  // actionFlag 130 had no handler anywhere
 });
 
 
@@ -266,7 +263,10 @@ server.on("/api/v1/data", HTTP_GET, [](AsyncWebServerRequest *request)
     request->send_P(200, "text/html", otaIndex); 
     });
   server.on("/handleFwupdate", HTTP_POST, [](AsyncWebServerRequest *request){
-    if(checkRemote( request->client()->remoteIP().toString()) ) request->redirect( "/DENIED" );
+    // The upload page requires admin login; the POST handler must do the same.
+    // (Previously any LAN device could flash arbitrary firmware.)
+    if(checkRemote( request->client()->remoteIP().toString()) ) return request->redirect( "/DENIED" );
+    if (!request->authenticate("admin", pswd) ) return request->requestAuthentication();
     Serial.println("FWUPDATE requested");
     if( !Update.hasError() ) {
     toSend="<br><br><center><h2>UPDATE SUCCESS !!</h2><br><br>";

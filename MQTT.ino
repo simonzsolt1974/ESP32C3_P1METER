@@ -5,7 +5,7 @@
  *
  * FINAL fixes for Sanxing SX631 / S34U18:
  *  - Keeps the original mqttConnect() behaviour.
- *  - MQTT topic buffer is no longer limited to 25 characters.
+ *  - MQTT topics stay within the project's 25-character topic buffers.
  *  - MQTT JSON input is parsed with the supplied payload length.
  *  - For Mqtt_Format 1, actual power is TOTAL 3-phase power, not L1 only.
  *  - For Mqtt_Format 2, the original fields are preserved and SX631
@@ -86,6 +86,11 @@ void MQTT_Receive_Callback(char *topic, byte *payload, unsigned int length)
 // *************************************************************************
 //                              send MQTT
 // *************************************************************************
+
+// NaN is not valid JSON/ThingSpeak; replace missing readings with 0.
+static float mqttFinite(float v) {
+  return isfinite(v) ? v : 0.0f;
+}
 
 void sendMqtt(bool gas) {
 
@@ -198,8 +203,7 @@ void sendMqtt(bool gas) {
         "\"v1\":%.2f,\"v2\":%.2f,\"v3\":%.2f,"
         "\"i1\":%.3f,\"i2\":%.3f,\"i3\":%.3f,"
         "\"frequency\":%.3f,\"power_factor\":%.4f,"
-        "\"e_imp\":%.3f,\"e_exp\":%.3f,"
-        "\"q_imp\":%.3f,\"q_exp\":%.3f"
+        "\"e_imp\":%.3f,\"e_exp\":%.3f"
         "}",
         meter.con_lt,
         meter.con_ht,
@@ -214,18 +218,17 @@ void sendMqtt(bool gas) {
         (unsigned int)meter.pwr_ret[0],
         (unsigned int)meter.pwr_ret[1],
         (unsigned int)meter.pwr_ret[2],
-        sx631.valid ? sx631.voltage_l1 : NAN,
-        sx631.valid ? sx631.voltage_l2 : NAN,
-        sx631.valid ? sx631.voltage_l3 : NAN,
-        sx631.valid ? sx631.current_l1 : NAN,
-        sx631.valid ? sx631.current_l2 : NAN,
-        sx631.valid ? sx631.current_l3 : NAN,
-        sx631.valid ? sx631.frequency : NAN,
-        sx631.valid ? sx631.power_factor : NAN,
+        // 0 instead of NaN: NaN would serialize as "nan" (invalid JSON).
+        sx631.valid ? sx631.voltage_l1 : 0.0f,
+        sx631.valid ? sx631.voltage_l2 : 0.0f,
+        sx631.valid ? sx631.voltage_l3 : 0.0f,
+        sx631.valid ? sx631.current_l1 : 0.0f,
+        sx631.valid ? sx631.current_l2 : 0.0f,
+        sx631.valid ? sx631.current_l3 : 0.0f,
+        sx631.valid ? sx631.frequency : 0.0f,
+        sx631.valid ? sx631.power_factor : 0.0f,
         sx631.valid ? sx631.e_imp : (meter.con_lt + meter.con_ht),
-        sx631.valid ? sx631.e_exp : (meter.ret_lt + meter.ret_ht),
-        sx631.valid ? sx631.q_imp : NAN,
-        sx631.valid ? sx631.q_exp : NAN
+        sx631.valid ? sx631.e_exp : (meter.ret_lt + meter.ret_ht)
       );
       break;
 
@@ -245,10 +248,10 @@ void sendMqtt(bool gas) {
       snprintf(
         toMQTT, sizeof(toMQTT),
         "field1=%.3f&field2=%.3f&field3=%.3f&field4=%.3f&field5=%lu&field6=%lu&field7=%.3f&status=MQTTPUBLISH",
-        meter.con_lt,
-        meter.con_ht,
-        meter.ret_lt,
-        meter.ret_ht,
+        mqttFinite(meter.con_lt),
+        mqttFinite(meter.con_ht),
+        mqttFinite(meter.ret_lt),
+        mqttFinite(meter.ret_ht),
         (unsigned long)pwrConTotal,
         (unsigned long)pwrRetTotal,
         isfinite(meter.gas) ? meter.gas : 0.0

@@ -21,11 +21,15 @@ if(!checkRemote( request->client()->remoteIP().toString()) ) intern = true;
 if ( intern ) {    //DebugPrintln("the request comes from inside the network");
         String serverUrl = request->url().c_str();             
         if ( serverUrl.indexOf("/API/TELEGRAM") > -1) {
-            char tozend[1024];
-            strcat(teleGram, "\r\npolled at ");
-            strcat(teleGram, timeStamp);
+            // Never append to the live buffer: the old strcat() grew
+            // teleGram[1060] on every request (buffer overflow) and
+            // corrupted the data parseTelegram() works on.
+            // The SX631 stores its telegram in sx631RxTelegram.
+            const char *frame = (meterType == 3) ? sx631RxTelegram : teleGram;
+            String tosend = String(frame) + "\r\npolled at " + String(timeStamp);
             testTelegram = false; // useless for testing   
-            request->send(200, "text/plain", String(teleGram) );
+            request->send(200, "text/plain", tosend );
+            return;
         }
 
          if ( serverUrl.indexOf("/api/v1/data") > -1) {
@@ -50,11 +54,11 @@ if ( intern ) {    //DebugPrintln("the request comes from inside the network");
        
        
        // if we are here, no valid api was found    
-       request->send ( 200, "text/plain", "ERROR this link is invalid, go back <--" );//send not found message
+       request->send ( 404, "text/plain", "ERROR this link is invalid, go back <--" );//send not found message
        }             
 
     else { // not intern
       //DebugPrint("\t\t\t\t unauthorized, not from inside the network : ");
-      request->send ( 200, "text/plain", "ERROR you are not authorised, go back <--" );//send not found message
+      request->send ( 403, "text/plain", "ERROR you are not authorised, go back <--" );//send not found message
     }
 }

@@ -39,6 +39,11 @@
     }    
     
 
+    if (actionFlag == 25) { // geo/timezone form submitted
+      actionFlag = 0; //reset the actionflag
+      getTijd(); // re-fetch NTP time with the new gmtOffset/DST settings
+    }
+
     if (actionFlag == 26) { //polling
       actionFlag = 0; //reset the actionflag
       meterPoll(); // read and decode the telegram
@@ -62,7 +67,14 @@
       polled=true;
       //we need the readCRC so we extract it from the file
          int len = strlen(teleGram);
-         strncpy(readCRC, teleGram + len-4, 4); 
+         if (len > 4) {
+           strncpy(readCRC, teleGram + len-4, 4);
+           readCRC[4] = '\0'; // was missing: readCRC[5] could stay unterminated
+         } else {
+           consoleOut("test telegram too short for a CRC");
+           polled = false;
+           return;
+         }
          consoleOut("readCRC = " + String(readCRC) );
          decodeTelegram();
          sendMqtt(false);
@@ -92,7 +104,7 @@
      actionFlag = 0;
      testMessage();
      }
-    // ** test mosquitto *********************
+    // ********* test mosquitto *********************
     if (actionFlag == 49) { //triggered by console testmqtt
         actionFlag = 0; //reset the actionflag
         ledblink(1,100);

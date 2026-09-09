@@ -94,16 +94,22 @@ char *split(char *str, const char *delim)
 }
 
 
+// NaN/inf must never reach the JSON serializers: casting NaN to int is
+// undefined behaviour and produced values like -2147483.648 on the webpages.
 double round3(double value) {
+   if (!isfinite(value)) return 0.0;
    return (int)(value * 1000 + 0.5) / 1000.0;
 }
 double round2(double value) {
+   if (!isfinite(value)) return 0.0;
    return (int)(value * 100 + 0.5) / 100.0;
 }
 double round1(double value) {
+   if (!isfinite(value)) return 0.0;
    return (int)(value * 10 + 0.5) / 10.0;
 }
 double round0(double value) {
+   if (!isfinite(value)) return 0;
    return (int)(value + 0.5) ;
 }
 
@@ -161,7 +167,7 @@ void showDir() {
        consoleOut(" print existing files ******");
       for (int x=1; x < 13; x++) 
       {
-          String bestand = "/monthly_vals" + String(x) + ".str";
+          String bestand = "/mvalues_" + String(x) + ".str"; // same name setup()/writeMonth() use
           printStruct(bestand, x);
       }
         consoleOut("the current values are:");
@@ -182,6 +188,6 @@ void writeMonth(int maand) {
    MVALS[maand].ER_HT = meter.ret_ht ;
    MVALS[maand].mGAS  = meter.gas;
 // write this in SPIFFS
-   String bestand = "//mvalues_" + String(maand) + ".str"; // month5.str
+   String bestand = "/mvalues_" + String(maand) + ".str"; // month5.str (single slash like everywhere else)
    writeStruct(bestand, maand);
 } 

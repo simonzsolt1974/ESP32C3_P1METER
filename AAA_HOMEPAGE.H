@@ -276,7 +276,7 @@ function getData() {
       PWRR3 =  obj.PWRR3;      
       var enC = obj.enC;
       var enR = obj.enR;
-      var aP1 = PWRC1 + PWRR2;
+      var aP1 = PWRC1 + PWRR1;
       var aP2 = PWRC2 + PWRR2;
       var aP3 = PWRC3 + PWRR3;
       //var gAa = obj.gAs;

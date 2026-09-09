@@ -137,15 +137,15 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   diagNose = 1;
   AwsFrameInfo *info = (AwsFrameInfo*)arg;
 
-  for(int i=0; i<len; i++ ) 
-  {
-  txBuffer[i] = data[i];
-  }
-  txBuffer[len]='\0'; // terminate the array
-
   if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) 
   {
       data[len] = 0;
+      // txBuffer is only 50 bytes: clamp before copying (any longer
+      // console input used to overflow into adjacent globals)
+      size_t n = len;
+      if (n >= sizeof(txBuffer)) n = sizeof(txBuffer) - 1;
+      memcpy(txBuffer, data, n);
+      txBuffer[n] = '\0'; // terminate the array
             
 
 
@@ -163,7 +163,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
                char *valueStr = txBuffer + 16;
 
               int month = atoi(valueStr);
-              String bestand = "//mvalues_" + String(month) + ".str"; // month5.str
+              String bestand = "/mvalues_" + String(month) + ".str"; // month5.str
               printStruct( bestand, month ); 
               return;             
           

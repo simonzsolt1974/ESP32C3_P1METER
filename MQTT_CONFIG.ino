@@ -17,7 +17,7 @@ document.getElementById("help").style.display = "none";
   
   <b>f2:</b> {"con_lt":123.22,"con_ht":234.55,"ret_ht":123.22,"ret_lt":222.33,"gas":1234.555}<br><br>
   <b>f3:</b> {"field1=:CON_LT&field2=CON_HT&field3=RET_LT&field4=RET_HT&field5=POWER_CON&field6=POWER_RET&field7=GAS&status=MQTTPUBLISH"}<br>
-  <br>Format 2 has the retainflag set.
+  <br>Formats 2 and 3 are published once per poll; the retain flag is never set.
   <br><br> 
   
   <b>receive topic:</b><br>Fixed value, the topic on which is subscribed for incoming mqtt.<br><br>

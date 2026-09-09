@@ -121,14 +121,12 @@ void start_portal() {
 
 if (connectWifi() == WL_CONNECTED) {
   Serial.println("youpy, connected");
-  esp_task_wdt_reset();
   digitalWrite(led_onb, LED_UIT);
   //pixelsAan(0);
   event=101;
    
     } else {
   Serial.println("could not connect, try again");
-  esp_task_wdt_reset();
     ledblink(10, 200);
     digitalWrite(led_onb, LED_AAN); 
     //set_pwm(200);

@@ -50,7 +50,7 @@ void handleAbout(AsyncWebServerRequest *request) {
   strcat(page, temp);
   sprintf(temp, "<tr><td>wifi signalstrength<td>%lddB</td>", WiFi.RSSI());
   strcat(page, temp);
-  sprintf(temp, "<tr><td>ESP CHIP ID nr: <td> %ld</td>", getChipId(true) );
+  sprintf(temp, "<tr><td>ESP CHIP ID nr: <td> %ld</td>", (long)ESP.getEfuseMac() & 0xFFFFFF );
   strcat(page, temp);
   sprintf(temp, "<tr><td>Free heap<td> %u bytes</td>", ESP.getFreeHeap() );
   strcat(page, temp);

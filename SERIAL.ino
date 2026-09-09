@@ -81,7 +81,7 @@ void handle_Serial () {
           MVALS[month].mGAS =  doc["GAS"];
       
             // write this in SPIFFS
-          String bestand = "//mvalues_" + String(month) + ".str"; // month5.str
+          String bestand = "/mvalues_" + String(month) + ".str"; // month5.str
           writeStruct(bestand, month);
           Serial.println("confirm content " + bestand);
           printStruct( bestand, month ); 
@@ -117,7 +117,7 @@ void handle_Serial () {
     if (strncasecmp(InputBuffer_Serial, "DELETE-FILE=", 12 ) == 0) {  
        Serial.println("len = " + String(len));
        String bestand="";
-       for(int i=12;  i<len+1; i++) { bestand += String(InputBuffer_Serial[i]); }
+       for(int i=12;  i<len; i++) { bestand += String(InputBuffer_Serial[i]); } // i<len: do not read past the terminator
        Serial.println("bestand  = " + bestand);
          // now should have like /bestand.json or so;
          if (SPIFFS.exists(bestand)) 

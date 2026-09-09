@@ -12,20 +12,10 @@
  * registers are decoded by decodeAllSX631Registers() in AAA_READ_SERIAL.ino.
  */
 
-#define OBIS_SMR        "1-3:0.2.8("
-#define OBIS_CON_LT     "1-0:1.8.1("
-#define OBIS_CON_HT     "1-0:1.8.2("
-#define OBIS_RET_LT     "1-0:2.8.1("
-#define OBIS_RET_HT     "1-0:2.8.2("
-
-#define OBIS_POWER_C1   "1-0:21.7.0("
-#define OBIS_POWER_R1   "1-0:22.7.0("
-#define OBIS_POWER_C2   "1-0:41.7.0("
-#define OBIS_POWER_R2   "1-0:42.7.0("
-#define OBIS_POWER_C3   "1-0:61.7.0("
-#define OBIS_POWER_R3   "1-0:62.7.0("
-
-#define OBIS_GAS        "0-1:24.2.1("
+/*
+ * OBIS codes shared with the main sketch.  The duplicate #define set that
+ * used to live here was removed so the values cannot drift apart again.
+ */
 
 static bool lineHasObis(const char *p, const char *obis)
 {
@@ -112,7 +102,8 @@ void parseTelegram()
   }
 
   // SX631-specific extended decoding is performed once by
-  // decodeAllSX631Registers() in AAA_READ_SERIAL.ino after CRC validation.
+  // decodeAllSX631Registers() in AAA_READ_SERIAL.ino (only for meterType 3;
+  // this parser only handles the legacy meters after CRC validation).
 
   consoleOut("1.8.1 = " + String(meter.con_lt, 3) + " kWh");
   consoleOut("1.8.2 = " + String(meter.con_ht, 3) + " kWh");
