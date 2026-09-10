@@ -176,12 +176,15 @@ var RET_HT;
 var RET_LT;
 // signed total instantaneous power in W (import +, export -)
 var PWRPTOT = 0;
-// per-phase signed power, null when the meter transmits no
-// per-phase power registers (the E.ON Hungary SX631/S34U18 never does)
+// per-phase signed power, null when neither direct meter registers nor
+// the U x I x PF calculation can provide a value
 var PWRP1 = null;
 var PWRP2 = null;
 var PWRP3 = null;
 var phasePwr = false;
+// source of the per-phase power values: "meter" (direct OBIS registers),
+// "calculated" (U x I x PF) or null when unavailable
+var phasePwrSrc = null;
 var PWRC1 = 0, PWRR1 = 0, PWRC2 = 0, PWRR2 = 0, PWRC3 = 0, PWRR3 = 0;
 
 function loadScript() {
@@ -221,11 +224,11 @@ function pop3() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
   if (PWRP1 === null) {
-    popup.innerHTML="TELJESÍTMÉNY L1<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
-  } else if (phasePwr) {
-    popup.innerHTML="TELJESÍTMÉNY L1<br>  fogyasztás : " + PWRC1 + " W<br>  visszatáplálás : " + (0 - PWRR1) + " W";
+    popup.innerHTML="TELJESÍTMÉNY L1<br>  nem elérhető (a mérő nem szolgáltat fázisteljesítményt)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwrSrc == "calculated") {
+    popup.innerHTML="TELJESÍTMÉNY L1 (SZÁMOLT)<br>  pillanatnyi teljesítmény : " + PWRP1 + " W<br>  számítás: U × I × cosφ (a mérő nem küld fázisteljesítményt)";
   } else {
-    popup.innerHTML="TELJESÍTMÉNY L1<br>  pillanatnyi teljesítmény : " + PWRP1 + " W";
+    popup.innerHTML="TELJESÍTMÉNY L1<br>  fogyasztás : " + PWRC1 + " W<br>  visszatáplálás : " + (0 - PWRR1) + " W";
   }
   setTimeout(change,200);
 }
@@ -233,11 +236,11 @@ function pop4() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
   if (PWRP2 === null) {
-    popup.innerHTML="TELJESÍTMÉNY L2<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
-  } else if (phasePwr) {
-    popup.innerHTML="TELJESÍTMÉNY L2<br>  fogyasztás : " + PWRC2 + " W<br>  visszatáplálás : " + (0 - PWRR2) + " W";
+    popup.innerHTML="TELJESÍTMÉNY L2<br>  nem elérhető (a mérő nem szolgáltat fázisteljesítményt)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwrSrc == "calculated") {
+    popup.innerHTML="TELJESÍTMÉNY L2 (SZÁMOLT)<br>  pillanatnyi teljesítmény : " + PWRP2 + " W<br>  számítás: U × I × cosφ (a mérő nem küld fázisteljesítményt)";
   } else {
-    popup.innerHTML="TELJESÍTMÉNY L2<br>  pillanatnyi teljesítmény : " + PWRP2 + " W";
+    popup.innerHTML="TELJESÍTMÉNY L2<br>  fogyasztás : " + PWRC2 + " W<br>  visszatáplálás : " + (0 - PWRR2) + " W";
   }
   setTimeout(change,200);
 }
@@ -245,11 +248,11 @@ function pop5() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
   if (PWRP3 === null) {
-    popup.innerHTML="TELJESÍTMÉNY L3<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
-  } else if (phasePwr) {
-    popup.innerHTML="TELJESÍTMÉNY L3<br>  fogyasztás : " + PWRC3 + " W<br>  visszatáplálás : " + (0 - PWRR3) + " W";
+    popup.innerHTML="TELJESÍTMÉNY L3<br>  nem elérhető (a mérő nem szolgáltat fázisteljesítményt)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwrSrc == "calculated") {
+    popup.innerHTML="TELJESÍTMÉNY L3 (SZÁMOLT)<br>  pillanatnyi teljesítmény : " + PWRP3 + " W<br>  számítás: U × I × cosφ (a mérő nem küld fázisteljesítményt)";
   } else {
-    popup.innerHTML="TELJESÍTMÉNY L3<br>  pillanatnyi teljesítmény : " + PWRP3 + " W";
+    popup.innerHTML="TELJESÍTMÉNY L3<br>  fogyasztás : " + PWRC3 + " W<br>  visszatáplálás : " + (0 - PWRR3) + " W";
   }
   setTimeout(change,200);
 }
@@ -281,21 +284,24 @@ function getData() {
     if (this.readyState == 4 && this.status == 200) {
       var antwoord = this.responseText;
       var obj = JSON.parse(antwoord);
-//{"CON_HT":0,"CON_LT":51.775,"RET_HT":0,"RET_LT":24.413,"PWRPTOT":-3906,"phasePwr":false,"enR":24.413,"enC":51.775,"rm":0}
-// PWRP1..PWRP3 are only present when phasePwr == true
+//{"CON_HT":0,"CON_LT":51.775,"RET_HT":0,"RET_LT":24.413,"PWRPTOT":-3906,"phasePwr":false,"phasePwrSrc":"calculated","PWRP1":906,"PWRP2":1177,"PWRP3":1417,"enR":24.413,"enC":51.775,"rm":0}
+// PWRP1..PWRP3 are present when the phase power is available from the
+// meter (phasePwrSrc == "meter") or calculated U x I x PF
+// (phasePwrSrc == "calculated"); they are absent when unavailable.
       CON_HT = obj.CON_HT;
       CON_LT = obj.CON_LT;
       RET_HT = obj.RET_HT;
       RET_LT = obj.RET_LT;
       // SIGNED instantaneous power in W straight from the meter telegram.
       // PWRPTOT is the meter's real total (1.7.0 - 2.7.0).
-      // PWRP1..PWRP3 are per-phase values; they are null (unavailable)
-      // when the meter does not transmit per-phase power registers.
+      // PWRP1..PWRP3 are per-phase values (meter or U x I x PF calculated);
+      // they are null (unavailable) when neither source can provide them.
       PWRPTOT = obj.PWRPTOT;
       PWRP1 = (obj.PWRP1 === undefined) ? null : obj.PWRP1; 
       PWRP2 = (obj.PWRP2 === undefined) ? null : obj.PWRP2;      
       PWRP3 = (obj.PWRP3 === undefined) ? null : obj.PWRP3;
       phasePwr = obj.phasePwr;
+      phasePwrSrc = (obj.phasePwrSrc === undefined) ? null : obj.phasePwrSrc;
       PWRC1 = obj.PWRC1 || 0; 
       PWRR1 = obj.PWRR1 || 0;    
       PWRC2 = obj.PWRC2 || 0; 
@@ -327,7 +333,8 @@ function getData() {
         document.getElementById(cel).innerHTML = "n/a";
       } else {
         if(PWRP1 < 0 ) celbga(cel); else celbgc(cel);
-        document.getElementById(cel).innerHTML = PWRP1;
+        document.getElementById(cel).innerHTML =
+          (phasePwrSrc == "calculated") ? PWRP1 + " (számolt)" : PWRP1;
       }
            
       cel="p22"; //teljesítmény L2
@@ -335,7 +342,8 @@ function getData() {
         document.getElementById(cel).innerHTML = "n/a";
       } else {
         if(PWRP2 < 0 ) celbga(cel); else celbgc(cel);
-        document.getElementById(cel).innerHTML = PWRP2;
+        document.getElementById(cel).innerHTML =
+          (phasePwrSrc == "calculated") ? PWRP2 + " (számolt)" : PWRP2;
       }
  
       cel="p23"; //teljesítmény L3
@@ -343,12 +351,14 @@ function getData() {
         document.getElementById(cel).innerHTML = "n/a";
       } else {
         if(PWRP3 < 0 ) celbga(cel); else celbgc(cel);
-        document.getElementById(cel).innerHTML = PWRP3;
+        document.getElementById(cel).innerHTML =
+          (phasePwrSrc == "calculated") ? PWRP3 + " (számolt)" : PWRP3;
       }
 
       // Összes pillanatnyi teljesítmény = the meter's real signed total
+      // (mérőből = directly from the meter's 1.7.0 / 2.7.0 registers)
       if(PWRPTOT < 0 ) celbga("p24"); else celbgc("p24");
-      document.getElementById("p24").innerHTML = PWRPTOT;
+      document.getElementById("p24").innerHTML = PWRPTOT + " (mérőből)";
             
 
       document.getElementById("noOutput").style.display = "none";

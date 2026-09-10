@@ -9,11 +9,17 @@
  *  - MQTT JSON input is parsed with the supplied payload length.
  *  - For Mqtt_Format 1, actual power is TOTAL 3-phase power, not L1 only.
  *  - For Mqtt_Format 2, the original fields are preserved and SX631
- *    3-phase values are added.
+ *    3-phase values are added (source-labelled: direct meter values when
+ *    the meter transmits them, U x I x PF calculated values otherwise).
  *  - Meters without per-phase power registers (E.ON Hungary SX631/S34U18)
- *    publish phase power as null (never the total repeated per phase, and
- *    never fabricated 0 values) plus the real signed total from
- *    OBIS 1.7.0 - 2.7.0 in "total_power_w".
+ *    publish the CALCULATED phase power (U x I x PF from 32/52/72,
+ *    31/51/71 and 33/53/73.7.0) in phase_power_l1_w/l2_w/l3_w together
+ *    with the source metadata phase_power_source ("meter" | "calculated"
+ *    | "unavailable") and the boolean phase_power_calculated, so Home
+ *    Assistant can never mistake calculated values for direct meter
+ *    values. The direct import/export register split (p1_con..p3_ret)
+ *    stays null for such meters and the real signed total from
+ *    OBIS 1.7.0 - 2.7.0 is published in "total_power_w".
  *  - For Mqtt_Format 3, the original ThingSpeak field layout is preserved.
  *  - sendMqtt(true) is used only for the gas/extra Domoticz packet in
  *    format 1. Formats 2 and 3 publish the electricity packet only once;
@@ -130,10 +136,11 @@ void sendMqtt(bool gas) {
   uint32_t pwrRetTotal;
 
   /*
-   * Per-phase power as JSON numbers, or the literal "null" when the meter
-   * transmits no per-phase power registers (E.ON Hungary SX631/S34U18).
-   * null is the representation this format already uses for unavailable
-   * values (gas). The TOTAL is never copied into the phase fields.
+   * Direct per-phase import/export register split as JSON numbers, or the
+   * literal "null" when the meter transmits no per-phase power registers
+   * (E.ON Hungary SX631/S34U18). null is the representation this format
+   * already uses for unavailable values (gas). The TOTAL is never copied
+   * into the phase fields.
    */
   char p1ConStr[12], p2ConStr[12], p3ConStr[12];
   char p1RetStr[12], p2RetStr[12], p3RetStr[12];
@@ -152,6 +159,31 @@ void sendMqtt(bool gas) {
     strcpy(p1RetStr, "null");
     strcpy(p2RetStr, "null");
     strcpy(p3RetStr, "null");
+  }
+
+  /*
+   * Best available SIGNED per-phase power (source priority: direct meter
+   * registers first, then U x I x PF calculation) plus the source metadata
+   * so consumers can label the values correctly.
+   */
+  const char *phaseSrc;
+  char p1PhStr[12], p2PhStr[12], p3PhStr[12];
+
+  if (meter.pwr_phase_valid) {
+    phaseSrc = "meter";
+    snprintf(p1PhStr, sizeof(p1PhStr), "%ld", (long)meter.pwr_calc[0]);
+    snprintf(p2PhStr, sizeof(p2PhStr), "%ld", (long)meter.pwr_calc[1]);
+    snprintf(p3PhStr, sizeof(p3PhStr), "%ld", (long)meter.pwr_calc[2]);
+  } else if (meter.pwr_phase_calculated) {
+    phaseSrc = "calculated";
+    snprintf(p1PhStr, sizeof(p1PhStr), "%ld", (long)meter.pwr_calc[0]);
+    snprintf(p2PhStr, sizeof(p2PhStr), "%ld", (long)meter.pwr_calc[1]);
+    snprintf(p3PhStr, sizeof(p3PhStr), "%ld", (long)meter.pwr_calc[2]);
+  } else {
+    phaseSrc = "unavailable";
+    strcpy(p1PhStr, "null");
+    strcpy(p2PhStr, "null");
+    strcpy(p3PhStr, "null");
   }
 
   if (meter.pwr_phase_valid) {
@@ -248,6 +280,9 @@ void sendMqtt(bool gas) {
         "\"gas\":%s,"
         "\"p1_con\":%s,\"p2_con\":%s,\"p3_con\":%s,"
         "\"p1_ret\":%s,\"p2_ret\":%s,\"p3_ret\":%s,"
+        "\"phase_power_source\":\"%s\","
+        "\"phase_power_calculated\":%s,"
+        "\"phase_power_l1_w\":%s,\"phase_power_l2_w\":%s,\"phase_power_l3_w\":%s,"
         "\"v1\":%.2f,\"v2\":%.2f,\"v3\":%.2f,"
         "\"i1\":%.3f,\"i2\":%.3f,\"i3\":%.3f,"
         "\"frequency\":%.3f,\"power_factor\":%.4f,"
@@ -267,6 +302,11 @@ void sendMqtt(bool gas) {
         p1RetStr,
         p2RetStr,
         p3RetStr,
+        phaseSrc,
+        meter.pwr_phase_calculated ? "true" : "false",
+        p1PhStr,
+        p2PhStr,
+        p3PhStr,
         // 0 instead of NaN: NaN would serialize as "nan" (invalid JSON).
         sx631.valid ? sx631.voltage_l1 : 0.0f,
         sx631.valid ? sx631.voltage_l2 : 0.0f,

@@ -180,17 +180,20 @@ server.on("/get.Data", HTTP_GET, [](AsyncWebServerRequest *request) {
     float enCons   = meter.con_ht + meter.con_lt;
 
     //
-    // SIGNED instantaneous power in W (import +, export -), straight from
-    // the decoded telegram registers:
-    //   total     : 1.7.0 (import) minus 2.7.0 (export)
-    //   per phase : 21.7.0/22.7.0, 41.7.0/42.7.0, 61.7.0/62.7.0
-    // The E.ON Hungary SX631/S34U18 firmware does NOT transmit per-phase
-    // power registers, so for that meter PWRP1..PWRP3 serialize as JSON
-    // null (= unavailable). The total is NEVER copied into the phases.
+    // SIGNED instantaneous power in W (import +, export -).
     //
-    int32_t pwr1 = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
-    int32_t pwr2 = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
-    int32_t pwr3 = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
+    // total: directly from the meter (1.7.0 import minus 2.7.0 export).
+    //
+    // per phase: source priority per the decoder
+    //   1. METER      - direct registers 21/22, 41/42, 61/62.7.0 (legacy)
+    //   2. CALCULATED - U x I x PF (32/52/72 x 31/51/71 x 33/53/73.7.0)
+    //     when the meter sends no direct phase-power registers
+    //     (E.ON Hungary SX631/S34U18).
+    //   3. absent     - keys omitted; the total is NEVER copied into
+    //     the phases.
+    // "phasePwrSrc" tells the webpage which source applies so it can
+    // label the values (mérőből / számolt) instead of guessing.
+    //
     int32_t pwrT = (int32_t)meter.pwr_tot_con - (int32_t)meter.pwr_tot_ret;
 
     root["timestamp"] = String(timeStamp);
@@ -202,12 +205,20 @@ server.on("/get.Data", HTTP_GET, [](AsyncWebServerRequest *request) {
     root["RET_LT"] = round3(meter.ret_lt);
     
     // integer watts: serialize directly, round0() would round -344 to -343
-    // null = per-phase power unavailable (meter sends no phase registers)
     if (meter.pwr_phase_valid) {
-      root["PWRP1"] = pwr1;
-      root["PWRP2"] = pwr2;
-      root["PWRP3"] = pwr3;
+      // source = METER (direct registers)
+      root["PWRP1"] = meter.pwr_calc[0];
+      root["PWRP2"] = meter.pwr_calc[1];
+      root["PWRP3"] = meter.pwr_calc[2];
+      root["phasePwrSrc"] = "meter";
+    } else if (meter.pwr_phase_calculated) {
+      // source = CALCULATED (U x I x PF)
+      root["PWRP1"] = meter.pwr_calc[0];
+      root["PWRP2"] = meter.pwr_calc[1];
+      root["PWRP3"] = meter.pwr_calc[2];
+      root["phasePwrSrc"] = "calculated";
     }
+    // else: phase power unavailable -> keys omitted (JSON null for the page)
     root["PWRPTOT"] = pwrT;
     root["phasePwr"] = meter.pwr_phase_valid;
     // per-phase import/export split (only meaningful when phasePwr)
@@ -250,29 +261,34 @@ server.on("/api/v1/data", HTTP_GET, [](AsyncWebServerRequest *request)
     root["total_power_import_t2_kwh"] = round3(meter.con_lt); // tariff 2
     root["total_power_export_t1_kwh"] = round3(meter.ret_ht); // tariff 1
     root["total_power_export_t2_kwh"] = round3(meter.ret_lt); // tariff 2   
-    // Power balance calculations. Integer watts are serialized directly:
+    // Power calculations. Integer watts are serialized directly:
     // round0() truncates negatives (e.g. -344 W became -343 W) because it
     // adds +0.5 before the cast.
     //
     // active_power_w is ALWAYS the meter's own signed total
     // (1-0:1.7.0 minus 1-0:2.7.0), never a sum of phase values.
     //
-    // Per-phase power is only published when the meter actually transmits
-    // per-phase power registers (21/22, 41/42, 61/62). Otherwise the keys
-    // are omitted (null in JSON) - the total is NEVER copied into L1/L2/L3.
-    int32_t pwr_l1 = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
-    int32_t pwr_l2 = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
-    int32_t pwr_l3 = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
+    // Per-phase power source priority (same as the decoder):
+    //   1. METER      - direct registers 21/22, 41/42, 61/62.7.0 (legacy)
+    //   2. CALCULATED - U x I x PF when no direct phase registers exist    //     (E.ON Hungary SX631/S34U18). "active_power_phase_source" tells    //     the consumer which source applies.
+    //   3. absent     - phase keys omitted; the total is NEVER copied    //     into L1/L2/L3.
     int32_t pwr_tot = (int32_t)meter.pwr_tot_con - (int32_t)meter.pwr_tot_ret;
 
     root["active_power_w"] = pwr_tot; // signed total from 1.7.0 - 2.7.0
     if (meter.pwr_phase_valid) {
-      root["active_power_l1_w"] = pwr_l1; // balance of ret & con
-      if (threePhase)
+      root["active_power_l1_w"] = meter.pwr_calc[0]; // from meter registers      if (threePhase)
         {
-          root["active_power_l2_w"] = pwr_l2; // balance of ret & con
-          root["active_power_l3_w"] = pwr_l3; // balance of ret & con
+          root["active_power_l2_w"] = meter.pwr_calc[1];
+          root["active_power_l3_w"] = meter.pwr_calc[2];
         }
+      root["active_power_phase_source"] = "meter";
+    } else if (meter.pwr_phase_calculated) {
+      root["active_power_l1_w"] = meter.pwr_calc[0]; // U x I x PF      if (threePhase)
+        {
+          root["active_power_l2_w"] = meter.pwr_calc[1];
+          root["active_power_l3_w"] = meter.pwr_calc[2];
+        }
+      root["active_power_phase_source"] = "calculated";
     }
     
     String jsonString;

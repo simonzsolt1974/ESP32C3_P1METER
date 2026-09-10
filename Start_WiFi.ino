@@ -5,7 +5,25 @@ void start_wifi() {
   WiFi.mode(WIFI_STA);
   Serial.println("starting wifi ");
   delay(1000);
+  // set the hostname BEFORE WiFi.begin(), otherwise the first (stored
+  // credential) connection goes out with the default "espressif" name
   WiFi.setHostname(getChipId(false).c_str());
+
+  /*
+   * Intermittent OFFLINE fix.
+   *
+   * 1. WiFi.setSleep(false): on the ESP32-C3 the default modem-sleep lets
+   *    the radio doze between beacons; when the AP changes channel or drops
+   *    the beacon the STA link can be lost silently and the driver does not
+   *    always recover. Disabling modem sleep removes this trigger. Power
+   *    use is irrelevant here, the device is powered by the P1 port.
+   *
+   * 2. WiFi.setAutoReconnect(true): let the driver re-associate after short
+   *    drops. The loop() watchdog in the main sketch handles the cases the
+   *    driver cannot recover by itself.
+   */
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
 
   // we do 10 attemps to connect with the last used credentials
   while (WiFi.status() != WL_CONNECTED) {

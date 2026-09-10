@@ -120,6 +120,7 @@ DNSServer dnsServer;
   unsigned long previousMillis = 0;        // will store last temp was read
   static unsigned long laatsteMeting = 0; //wordt ook bij OTA gebruikt en bij wifiportal
   static unsigned long lastCheck = 0; //wordt ook bij OTA gebruikt en bij wifiportal
+  unsigned long wifiWatchdogTimer = 0;     // last wifi-watchdog reconnect attempt
   
 #define LED_AAN    LOW   //sinc
 #define LED_UIT    HIGH
@@ -165,6 +166,15 @@ struct MeterData {
     // true when the telegram contained at least one per-phase power
     // register (21.7.0/41.7.0/61.7.0 or 22.7.0/42.7.0/62.7.0).
     bool pwr_phase_valid;
+    // Signed per-phase power in W CALCULATED as U x I x PF from the voltage
+    // (32/52/72.7.0), current (31/51/71.7.0) and power-factor (33/53/73.7.0)
+    // registers. Used ONLY when the meter transmits no direct per-phase
+    // power registers (the E.ON Hungary SX631/S34U18 does not).
+    // 0 = phase unavailable. Direct meter values always take priority.
+    int32_t pwr_calc[3];
+    // true when pwr_calc[] holds CALCULATED values (source = U x I x PF);
+    // false when phase values come straight from the meter or are absent.
+    bool pwr_phase_calculated;
     float   gas;
 };
 MeterData meter;
@@ -389,6 +399,24 @@ if(pollFreq != 0)
        getTijd(); // retrieve time 
   }
   
+  // *********************************************************************
+  // *          W I F I   W A T C H D O G   (intermittent OFFLINE fix)   *
+  // *********************************************************************
+  // Root cause of the intermittent OFFLINE state: the ESP32-C3 can silently
+  // lose the STA link (AP reboot, channel change, beacon loss during a long
+  // tight UART drain) and the driver does not always reconnect by itself.
+  // The P1 port keeps working, so the device stays reachable on the meter
+  // but disappears from the network. WiFi.setSleep(false) (start_wifi)
+  // removes the modem-sleep beacon-loss trigger and this watchdog forces a
+  // reconnect at most every 30 seconds while the link is down.
+  if (WiFi.status() != WL_CONNECTED && (nu - wifiWatchdogTimer >= 30000UL))
+  {
+      wifiWatchdogTimer = nu;
+      consoleOut(F("wifi watchdog: connection lost, trying to reconnect"));
+      WiFi.disconnect();
+      WiFi.reconnect();
+  }
+
   // we do this before sending polling info and healthcheck
   // this way it can't block the loop
   if(Mqtt_Format != 0 ) MQTT_Client.loop(); //looks for incoming messages

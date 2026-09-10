@@ -173,6 +173,15 @@ bool read_into_array() {
       }
     }
 
+    /*
+     * Give the Wi-Fi/MQTT background tasks CPU time after every drain pass,
+     * not only when the RX buffer runs dry. At 115200 baud a telegram can
+     * keep the buffer non-empty for hundreds of milliseconds; without a
+     * yield here the WiFi task can be starved long enough to lose beacons
+     * and drop the link (intermittent OFFLINE).
+     */
+    yield();
+
     if (started && (millis() - lastByteTime >= FRAME_GAP_TIMEOUT_MS)) {
       /*
        * Once '/' was found, a gap this long means the requested telegram
@@ -254,8 +263,18 @@ bool read_into_array() {
  *   1-0:14.7.0
  *
  * Reactive-energy / reactive-power registers are deliberately NOT decoded.
- * Phase power is NEVER calculated from U x I. It comes directly from the
- * meter's 21.7.0 / 41.7.0 / 61.7.0 and 22.7.0 / 42.7.0 / 62.7.0 values.
+ *
+ * PHASE POWER SOURCE PRIORITY:
+ *   1. METER      - direct per-phase active-power registers
+ *                   (21/22.7.0 L1, 41/42.7.0 L2, 61/62.7.0 L3) when the
+ *                   meter transmits them (legacy DSMR meters).
+ *   2. CALCULATED - when the meter sends no direct phase-power registers
+ *                   (E.ON Hungary SX631/S34U18), the phase power is
+ *                   calculated as U x I x PF from 32/52/72.7.0,
+ *                   31/51/71.7.0 and 33/53/73.7.0. The flag
+ *                   meter.pwr_phase_calculated marks this source so the
+ *                   web/API/MQTT layers can label it instead of passing
+ *                   calculated values off as direct meter values.
  *
  * The E.ON documentation writes the full OBIS with .255, while the actual
  * P1 telegram uses the shortened form. The helper below accepts both forms.
@@ -487,6 +506,7 @@ void decodeTelegram()
     meter.pwr_tot_con = 0;
     meter.pwr_tot_ret = 0;
     meter.pwr_phase_valid = false;
+    meter.pwr_phase_calculated = false;
     meter.gas = NAN;
 
     float v;
@@ -531,10 +551,12 @@ void decodeTelegram()
 
     if (sx631GetValue("1-0:41.7.0", v) && isfinite(v)) {
       meter.pwr_con[1] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:61.7.0", v) && isfinite(v)) {
       meter.pwr_con[2] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:22.7.0", v) && isfinite(v)) {
@@ -544,10 +566,12 @@ void decodeTelegram()
 
     if (sx631GetValue("1-0:42.7.0", v) && isfinite(v)) {
       meter.pwr_ret[1] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:62.7.0", v) && isfinite(v)) {
       meter.pwr_ret[2] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     // SIGNED total instantaneous power from the meter's own registers.
@@ -563,6 +587,58 @@ void decodeTelegram()
     // Decode the complete E.ON register set.
     decodeAllSX631Registers();
 
+    /*
+     * PHASE POWER SOURCE RESOLUTION.
+     *
+     * Priority 1 (METER): when the telegram contained direct per-phase
+     * active-power registers, the signed phase power is the import/export
+     * balance of those registers (pwr_con/pwr_ret are already in W).
+     *
+     * Priority 2 (CALCULATED): otherwise calculate the phase power as
+     * U x I x PF (32/52/72.7.0 x 31/51/71.7.0 x 33/53/73.7.0). The sign
+     * follows the power-factor register as transmitted by the meter.
+     * A phase is only calculated when its voltage and power factor were
+     * actually received; pwr_phase_calculated marks the whole set as
+     * calculated so nothing is ever labelled as a direct meter value.
+     *
+     * The TOTAL instantaneous power is NEVER distributed over the phases
+     * and the total is never copied into L1/L2/L3.
+     */
+    if (meter.pwr_phase_valid) {
+      // Source = METER: signed balance of the direct import/export registers.
+      meter.pwr_calc[0] = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
+      meter.pwr_calc[1] = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
+      meter.pwr_calc[2] = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
+      meter.pwr_phase_calculated = false;
+    } else {
+      // Source = CALCULATED: U x I x PF per phase.
+      meter.pwr_phase_calculated = false;
+
+      if (sx631.voltage_l1 > 0.0f && sx631.power_factor_l1 != 0.0f) {
+        meter.pwr_calc[0] =
+          (int32_t)roundf(sx631.voltage_l1 * sx631.current_l1 * sx631.power_factor_l1);
+        meter.pwr_phase_calculated = true;
+      } else {
+        meter.pwr_calc[0] = 0;
+      }
+
+      if (sx631.voltage_l2 > 0.0f && sx631.power_factor_l2 != 0.0f) {
+        meter.pwr_calc[1] =
+          (int32_t)roundf(sx631.voltage_l2 * sx631.current_l2 * sx631.power_factor_l2);
+        meter.pwr_phase_calculated = true;
+      } else {
+        meter.pwr_calc[1] = 0;
+      }
+
+      if (sx631.voltage_l3 > 0.0f && sx631.power_factor_l3 != 0.0f) {
+        meter.pwr_calc[2] =
+          (int32_t)roundf(sx631.voltage_l3 * sx631.current_l3 * sx631.power_factor_l3);
+        meter.pwr_phase_calculated = true;
+      } else {
+        meter.pwr_calc[2] = 0;
+      }
+    }
+
     consoleOut("1.8.1 = " + String(meter.con_lt, 3) + " kWh");
     consoleOut("1.8.2 = " + String(meter.con_ht, 3) + " kWh");
     consoleOut("2.8.1 = " + String(meter.ret_lt, 3) + " kWh");
@@ -570,6 +646,14 @@ void decodeTelegram()
     consoleOut("P1=" + String(meter.pwr_con[0]) + " W P2=" + String(meter.pwr_con[1]) + " W P3=" + String(meter.pwr_con[2]) + " W");
     consoleOut("Export P1=" + String(meter.pwr_ret[0]) + " W P2=" + String(meter.pwr_ret[1]) + " W P3=" + String(meter.pwr_ret[2]) + " W");
     consoleOut("TOT +P=" + String(meter.pwr_tot_con) + " W -P=" + String(meter.pwr_tot_ret) + " W");
+    consoleOut(
+      String("phase power ") +
+      (meter.pwr_phase_valid ? "(meter)" :
+       meter.pwr_phase_calculated ? "(calculated U*I*PF)" : "(unavailable)") +
+      " L1=" + String(meter.pwr_calc[0]) +
+      " L2=" + String(meter.pwr_calc[1]) +
+      " L3=" + String(meter.pwr_calc[2]) + " W"
+    );
 
     eventSend(2);
     sprintf(timeStamp, "%02d/%02d %02d:%02d", day(), month(), hour(), minute());

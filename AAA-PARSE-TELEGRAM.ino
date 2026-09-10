@@ -42,6 +42,10 @@ void parseTelegram()
   meter.pwr_tot_con = 0;
   meter.pwr_tot_ret = 0;
   meter.pwr_phase_valid = false;
+  meter.pwr_phase_calculated = false;
+  meter.pwr_calc[0] = 0;
+  meter.pwr_calc[1] = 0;
+  meter.pwr_calc[2] = 0;
   meter.gas = NAN;
 
   const char *p = teleGram;
@@ -139,6 +143,12 @@ void parseTelegram()
     "P3=" + String(meter.pwr_ret[2]) + " W"
   );
 }
+
+/*
+ * Legacy meters (meterType 1/2) transmit direct per-phase active-power
+ * registers, so their phase power always carries source = METER and the
+ * U x I x PF calculation never applies to them.
+ */
 
 /*
  * Values in the P1 telegram are expressed in kW for the 21/41/61 and
