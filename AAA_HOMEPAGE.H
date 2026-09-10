@@ -149,6 +149,7 @@ tr {height:35px;}
           <tr><td>Teljesítmény L1</td><td id="p21"></td><td>W</td><td><button class='btn' id='btn3'>details</button></tr>
           <tr><td>Teljesítmény L2</td><td id="p22"></td><td>W</td><td><button class='btn' id='btn4'>details</button></tr>
           <tr><td>Teljesítmény L3</td><td id="p23"></td><td>W</td><td><button class='btn' id='btn5'>details</button></tr>
+          <tr style='font-weight:bold;'><td>Összes pillanatnyi teljesítmény</td><td id="p24"></td><td>W</td><td></td></tr>
         </table>
         </div>  
         <p>Powered by Hansiart</p>
@@ -173,12 +174,13 @@ var CON_HT;
 var CON_LT;
 var RET_HT;
 var RET_LT;
-// signed phase power in W (import +, export -), as sent by /get.Data
-var PWRP1 = 0;
-var PWRP2 = 0;
-var PWRP3 = 0;
-// per-phase import/export split, only valid when the meter transmits
-// per-phase power registers (phasePwr == true)
+// signed total instantaneous power in W (import +, export -)
+var PWRPTOT = 0;
+// per-phase signed power, null when the meter transmits no
+// per-phase power registers (the E.ON Hungary SX631/S34U18 never does)
+var PWRP1 = null;
+var PWRP2 = null;
+var PWRP3 = null;
 var phasePwr = false;
 var PWRC1 = 0, PWRR1 = 0, PWRC2 = 0, PWRR2 = 0, PWRC3 = 0, PWRR3 = 0;
 
@@ -218,22 +220,37 @@ function pop2() {
 function pop3() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
-  if (phasePwr) { popup.innerHTML="TELJESÍTMÉNY L1<br>  fogyasztás : " + PWRC1 + " W<br>  visszatáplálás : " + (0 - PWRR1) + " W"; }
-  else { popup.innerHTML="TELJESÍTMÉNY L1<br>  pillanatnyi teljesítmény : " + PWRP1 + " W"; }
+  if (PWRP1 === null) {
+    popup.innerHTML="TELJESÍTMÉNY L1<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwr) {
+    popup.innerHTML="TELJESÍTMÉNY L1<br>  fogyasztás : " + PWRC1 + " W<br>  visszatáplálás : " + (0 - PWRR1) + " W";
+  } else {
+    popup.innerHTML="TELJESÍTMÉNY L1<br>  pillanatnyi teljesítmény : " + PWRP1 + " W";
+  }
   setTimeout(change,200);
 }
 function pop4() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
-  if (phasePwr) { popup.innerHTML="TELJESÍTMÉNY L2<br>  fogyasztás : " + PWRC2 + " W<br>  visszatáplálás : " + (0 - PWRR2) + " W"; }
-  else { popup.innerHTML="TELJESÍTMÉNY L2<br>  pillanatnyi teljesítmény : " + PWRP2 + " W"; }
+  if (PWRP2 === null) {
+    popup.innerHTML="TELJESÍTMÉNY L2<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwr) {
+    popup.innerHTML="TELJESÍTMÉNY L2<br>  fogyasztás : " + PWRC2 + " W<br>  visszatáplálás : " + (0 - PWRR2) + " W";
+  } else {
+    popup.innerHTML="TELJESÍTMÉNY L2<br>  pillanatnyi teljesítmény : " + PWRP2 + " W";
+  }
   setTimeout(change,200);
 }
 function pop5() {
   var popup = document.getElementById("myPopup");
   popup.classList.toggle("show");
-  if (phasePwr) { popup.innerHTML="TELJESÍTMÉNY L3<br>  fogyasztás : " + PWRC3 + " W<br>  visszatáplálás : " + (0 - PWRR3) + " W"; }
-  else { popup.innerHTML="TELJESÍTMÉNY L3<br>  pillanatnyi teljesítmény : " + PWRP3 + " W"; }
+  if (PWRP3 === null) {
+    popup.innerHTML="TELJESÍTMÉNY L3<br>  nem elérhető (a mérő nem küld fázisadatokat)<br>  összes pillanatnyi teljesítmény : " + PWRPTOT + " W";
+  } else if (phasePwr) {
+    popup.innerHTML="TELJESÍTMÉNY L3<br>  fogyasztás : " + PWRC3 + " W<br>  visszatáplálás : " + (0 - PWRR3) + " W";
+  } else {
+    popup.innerHTML="TELJESÍTMÉNY L3<br>  pillanatnyi teljesítmény : " + PWRP3 + " W";
+  }
   setTimeout(change,200);
 }
 function hidePopup(a) {
@@ -264,18 +281,20 @@ function getData() {
     if (this.readyState == 4 && this.status == 200) {
       var antwoord = this.responseText;
       var obj = JSON.parse(antwoord);
-//{"CON_HT":0,"CON_LT":51.775,"RET_HT":0,"RET_LT":24.413,"PWRP1":1234,"PWRP2":1234,"PWRP3":1234,"PWRPTOT":1234,"phasePwr":false,"enR":24.413,"enC":51.775,"rm":0}
+//{"CON_HT":0,"CON_LT":51.775,"RET_HT":0,"RET_LT":24.413,"PWRPTOT":-3906,"phasePwr":false,"enR":24.413,"enC":51.775,"rm":0}
+// PWRP1..PWRP3 are only present when phasePwr == true
       CON_HT = obj.CON_HT;
       CON_LT = obj.CON_LT;
       RET_HT = obj.RET_HT;
       RET_LT = obj.RET_LT;
       // SIGNED instantaneous power in W straight from the meter telegram.
-      // When the meter does not transmit per-phase power registers, the
-      // server repeats its real signed total in PWRP1..PWRP3. Nothing is
-      // invented and no sign is ever flipped to positive here.
-      PWRP1 = obj.PWRP1; 
-      PWRP2 = obj.PWRP2;      
-      PWRP3 = obj.PWRP3;
+      // PWRPTOT is the meter's real total (1.7.0 - 2.7.0).
+      // PWRP1..PWRP3 are per-phase values; they are null (unavailable)
+      // when the meter does not transmit per-phase power registers.
+      PWRPTOT = obj.PWRPTOT;
+      PWRP1 = (obj.PWRP1 === undefined) ? null : obj.PWRP1; 
+      PWRP2 = (obj.PWRP2 === undefined) ? null : obj.PWRP2;      
+      PWRP3 = (obj.PWRP3 === undefined) ? null : obj.PWRP3;
       phasePwr = obj.phasePwr;
       PWRC1 = obj.PWRC1 || 0; 
       PWRR1 = obj.PWRR1 || 0;    
@@ -304,16 +323,32 @@ function getData() {
            }      
 
       cel="p21"; //teljesítmény L1
-      if(PWRP1 < 0 ) celbga(cel); else celbgc(cel);
-      document.getElementById(cel).innerHTML = PWRP1;
+      if (PWRP1 === null) {
+        document.getElementById(cel).innerHTML = "n/a";
+      } else {
+        if(PWRP1 < 0 ) celbga(cel); else celbgc(cel);
+        document.getElementById(cel).innerHTML = PWRP1;
+      }
            
       cel="p22"; //teljesítmény L2
-      if(PWRP2 < 0 ) celbga(cel); else celbgc(cel);
-      document.getElementById(cel).innerHTML = PWRP2;
+      if (PWRP2 === null) {
+        document.getElementById(cel).innerHTML = "n/a";
+      } else {
+        if(PWRP2 < 0 ) celbga(cel); else celbgc(cel);
+        document.getElementById(cel).innerHTML = PWRP2;
+      }
  
       cel="p23"; //teljesítmény L3
-      if(PWRP3 < 0 ) celbga(cel); else celbgc(cel);
-      document.getElementById(cel).innerHTML = PWRP3;
+      if (PWRP3 === null) {
+        document.getElementById(cel).innerHTML = "n/a";
+      } else {
+        if(PWRP3 < 0 ) celbga(cel); else celbgc(cel);
+        document.getElementById(cel).innerHTML = PWRP3;
+      }
+
+      // Összes pillanatnyi teljesítmény = the meter's real signed total
+      if(PWRPTOT < 0 ) celbga("p24"); else celbgc("p24");
+      document.getElementById("p24").innerHTML = PWRPTOT;
             
 
       document.getElementById("noOutput").style.display = "none";

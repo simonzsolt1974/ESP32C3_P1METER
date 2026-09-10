@@ -11,7 +11,9 @@
  *  - For Mqtt_Format 2, the original fields are preserved and SX631
  *    3-phase values are added.
  *  - Meters without per-phase power registers (E.ON Hungary SX631/S34U18)
- *    publish the real signed totals from OBIS 1.7.0 / 2.7.0.
+ *    publish phase power as null (never the total repeated per phase, and
+ *    never fabricated 0 values) plus the real signed total from
+ *    OBIS 1.7.0 - 2.7.0 in "total_power_w".
  *  - For Mqtt_Format 3, the original ThingSpeak field layout is preserved.
  *  - sendMqtt(true) is used only for the gas/extra Domoticz packet in
  *    format 1. Formats 2 and 3 publish the electricity packet only once;
@@ -127,6 +129,31 @@ void sendMqtt(bool gas) {
   uint32_t pwrConTotal;
   uint32_t pwrRetTotal;
 
+  /*
+   * Per-phase power as JSON numbers, or the literal "null" when the meter
+   * transmits no per-phase power registers (E.ON Hungary SX631/S34U18).
+   * null is the representation this format already uses for unavailable
+   * values (gas). The TOTAL is never copied into the phase fields.
+   */
+  char p1ConStr[12], p2ConStr[12], p3ConStr[12];
+  char p1RetStr[12], p2RetStr[12], p3RetStr[12];
+
+  if (meter.pwr_phase_valid) {
+    snprintf(p1ConStr, sizeof(p1ConStr), "%u", (unsigned int)meter.pwr_con[0]);
+    snprintf(p2ConStr, sizeof(p2ConStr), "%u", (unsigned int)meter.pwr_con[1]);
+    snprintf(p3ConStr, sizeof(p3ConStr), "%u", (unsigned int)meter.pwr_con[2]);
+    snprintf(p1RetStr, sizeof(p1RetStr), "%u", (unsigned int)meter.pwr_ret[0]);
+    snprintf(p2RetStr, sizeof(p2RetStr), "%u", (unsigned int)meter.pwr_ret[1]);
+    snprintf(p3RetStr, sizeof(p3RetStr), "%u", (unsigned int)meter.pwr_ret[2]);
+  } else {
+    strcpy(p1ConStr, "null");
+    strcpy(p2ConStr, "null");
+    strcpy(p3ConStr, "null");
+    strcpy(p1RetStr, "null");
+    strcpy(p2RetStr, "null");
+    strcpy(p3RetStr, "null");
+  }
+
   if (meter.pwr_phase_valid) {
     pwrConTotal =
         (uint32_t)meter.pwr_con[0] +
@@ -198,7 +225,9 @@ void sendMqtt(bool gas) {
        *   econ_lt, econ_ht, eret_ht, eret_lt, actualp_con, actualp_ret, gas
        *
        * actualp_con / actualp_ret are now TOTAL 3-phase values.
-       * Additional SX631 fields expose each phase and electrical quantities.
+       * total_power_w is the meter's SIGNED total (1.7.0 - 2.7.0,
+       * import positive, export negative).  Per-phase fields are null
+       * when the meter does not transmit per-phase power registers.
        */
       if (!isfinite(meter.con_lt) || !isfinite(meter.con_ht) ||
           !isfinite(meter.ret_lt) || !isfinite(meter.ret_ht)) {
@@ -215,9 +244,10 @@ void sendMqtt(bool gas) {
         "\"eret_lt\":%.3f,"
         "\"actualp_con\":%lu,"
         "\"actualp_ret\":%lu,"
+        "\"total_power_w\":%ld,"
         "\"gas\":%s,"
-        "\"p1_con\":%u,\"p2_con\":%u,\"p3_con\":%u,"
-        "\"p1_ret\":%u,\"p2_ret\":%u,\"p3_ret\":%u,"
+        "\"p1_con\":%s,\"p2_con\":%s,\"p3_con\":%s,"
+        "\"p1_ret\":%s,\"p2_ret\":%s,\"p3_ret\":%s,"
         "\"v1\":%.2f,\"v2\":%.2f,\"v3\":%.2f,"
         "\"i1\":%.3f,\"i2\":%.3f,\"i3\":%.3f,"
         "\"frequency\":%.3f,\"power_factor\":%.4f,"
@@ -229,13 +259,14 @@ void sendMqtt(bool gas) {
         meter.ret_lt,
         (unsigned long)pwrConTotal,
         (unsigned long)pwrRetTotal,
+        (long)((int32_t)meter.pwr_tot_con - (int32_t)meter.pwr_tot_ret),
         isfinite(meter.gas) ? String(meter.gas, 3).c_str() : "null",
-        (unsigned int)meter.pwr_con[0],
-        (unsigned int)meter.pwr_con[1],
-        (unsigned int)meter.pwr_con[2],
-        (unsigned int)meter.pwr_ret[0],
-        (unsigned int)meter.pwr_ret[1],
-        (unsigned int)meter.pwr_ret[2],
+        p1ConStr,
+        p2ConStr,
+        p3ConStr,
+        p1RetStr,
+        p2RetStr,
+        p3RetStr,
         // 0 instead of NaN: NaN would serialize as "nan" (invalid JSON).
         sx631.valid ? sx631.voltage_l1 : 0.0f,
         sx631.valid ? sx631.voltage_l2 : 0.0f,
