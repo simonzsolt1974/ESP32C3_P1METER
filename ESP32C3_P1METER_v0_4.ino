@@ -64,10 +64,6 @@ AsyncWebSocket ws("/ws");
 
 #include <PubSubClient.h>
 
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
 const byte DNS_PORT = 53;
 DNSServer dnsServer;
 
@@ -121,6 +117,7 @@ DNSServer dnsServer;
   static unsigned long laatsteMeting = 0; //wordt ook bij OTA gebruikt en bij wifiportal
   static unsigned long lastCheck = 0; //wordt ook bij OTA gebruikt en bij wifiportal
   unsigned long wifiWatchdogTimer = 0;     // last wifi-watchdog reconnect attempt
+  unsigned long ntpRetryTimer = 0;         // last NTP retry when no time yet
   
 #define LED_AAN    LOW   //sinc
 #define LED_UIT    HIGH
@@ -386,7 +383,9 @@ if(pollFreq != 0)
    }
 }
 
-  if (day() != datum) // if date overflew 
+  // Monthly rollover only when a valid clock is running (TimeLib starts at
+  // epoch 0 before the first sync; the NTP retry below handles re-sync).
+  if (timeRetrieved && day() != datum) // if date overflew 
   { 
        if(day() < datum) {
         // its the 1st of the new month 
@@ -397,6 +396,14 @@ if(pollFreq != 0)
        }
      
        getTijd(); // retrieve time 
+  }
+
+  // NTP was not reachable (yet): retry every 10 minutes, non-blocking.
+  // The re-sync itself yields/waits only a few seconds in getTijd().
+  if (!timeRetrieved && (nu - ntpRetryTimer >= 600000UL))
+  {
+      ntpRetryTimer = nu;
+      getTijd();
   }
   
   // *********************************************************************
