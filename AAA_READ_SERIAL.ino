@@ -544,33 +544,35 @@ void decodeTelegram()
      * This is only a unit conversion; no U x I calculation is performed.
      */
 
+    // powerToWatts() performs the kW -> W conversion AND clamps to the
+    // uint16_t range of meter.pwr_con[]/pwr_ret[] (a raw cast could wrap).
     if (sx631GetValue("1-0:21.7.0", v) && isfinite(v)) {
-      meter.pwr_con[0] = (long)roundf(v * 1000.0f);
+      meter.pwr_con[0] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:41.7.0", v) && isfinite(v)) {
-      meter.pwr_con[1] = (long)roundf(v * 1000.0f);
+      meter.pwr_con[1] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:61.7.0", v) && isfinite(v)) {
-      meter.pwr_con[2] = (long)roundf(v * 1000.0f);
+      meter.pwr_con[2] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:22.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[0] = (long)roundf(v * 1000.0f);
+      meter.pwr_ret[0] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:42.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[1] = (long)roundf(v * 1000.0f);
+      meter.pwr_ret[1] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:62.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[2] = (long)roundf(v * 1000.0f);
+      meter.pwr_ret[2] = powerToWatts(v);
       meter.pwr_phase_valid = true;
     }
 
@@ -595,8 +597,16 @@ void decodeTelegram()
      * balance of those registers (pwr_con/pwr_ret are already in W).
      *
      * Priority 2 (CALCULATED): otherwise calculate the phase power as
-     * U x I x PF (32/52/72.7.0 x 31/51/71.7.0 x 33/53/73.7.0). The sign
-     * follows the power-factor register as transmitted by the meter.
+     * U x I x PF (32/52/72.7.0 x 31/51/71.7.0 x 33/53/73.7.0).
+     *
+     * IMPORTANT: the PF registers (33/53/73.7.0) are UNSIGNED magnitudes
+     * (e.g. 0.951). They do NOT encode import/export direction - the
+     * SX631 telegram simply has no per-phase direction register. The
+     * calculated phase values are therefore positive W magnitudes, and
+     * the total sign comes exclusively from 1.7.0 - 2.7.0. Downstream
+     * consumers must use the total (and phase_power_source) to interpret
+     * them; nothing here invents a per-phase sign.
+     *
      * A phase is only calculated when its voltage and power factor were
      * actually received; pwr_phase_calculated marks the whole set as
      * calculated so nothing is ever labelled as a direct meter value.
