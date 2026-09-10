@@ -10,6 +10,8 @@
  *  - For Mqtt_Format 1, actual power is TOTAL 3-phase power, not L1 only.
  *  - For Mqtt_Format 2, the original fields are preserved and SX631
  *    3-phase values are added.
+ *  - Meters without per-phase power registers (E.ON Hungary SX631/S34U18)
+ *    publish the real signed totals from OBIS 1.7.0 / 2.7.0.
  *  - For Mqtt_Format 3, the original ThingSpeak field layout is preserved.
  *  - sendMqtt(true) is used only for the gas/extra Domoticz packet in
  *    format 1. Formats 2 and 3 publish the electricity packet only once;
@@ -113,16 +115,32 @@ void sendMqtt(bool gas) {
   bool reTain = false;
   char toMQTT[1024] = {0};
 
-  // SX631 MeterData stores phase powers in watts.
-  const uint32_t pwrConTotal =
-      (uint32_t)meter.pwr_con[0] +
-      (uint32_t)meter.pwr_con[1] +
-      (uint32_t)meter.pwr_con[2];
+  /*
+   * Actual import/export power in W.
+   *
+   * When the meter transmits per-phase power registers (legacy meters),
+   * the totals are the sum of the phases.  The E.ON Hungary SX631/S34U18
+   * firmware does NOT transmit per-phase power; for that meter the real
+   * SIGNED totals decoded from 1.7.0 / 2.7.0 are used, so the published
+   * values match the meter exactly instead of always reading 0.
+   */
+  uint32_t pwrConTotal;
+  uint32_t pwrRetTotal;
 
-  const uint32_t pwrRetTotal =
-      (uint32_t)meter.pwr_ret[0] +
-      (uint32_t)meter.pwr_ret[1] +
-      (uint32_t)meter.pwr_ret[2];
+  if (meter.pwr_phase_valid) {
+    pwrConTotal =
+        (uint32_t)meter.pwr_con[0] +
+        (uint32_t)meter.pwr_con[1] +
+        (uint32_t)meter.pwr_con[2];
+
+    pwrRetTotal =
+        (uint32_t)meter.pwr_ret[0] +
+        (uint32_t)meter.pwr_ret[1] +
+        (uint32_t)meter.pwr_ret[2];
+  } else {
+    pwrConTotal = (uint32_t)(meter.pwr_tot_con < 0 ? 0 : meter.pwr_tot_con);
+    pwrRetTotal = (uint32_t)(meter.pwr_tot_ret < 0 ? 0 : meter.pwr_tot_ret);
+  }
 
   switch (Mqtt_Format) {
 

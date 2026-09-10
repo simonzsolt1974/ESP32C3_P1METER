@@ -484,6 +484,9 @@ void decodeTelegram()
     meter.ret_ht = NAN;
     meter.pwr_con[0] = meter.pwr_con[1] = meter.pwr_con[2] = 0;
     meter.pwr_ret[0] = meter.pwr_ret[1] = meter.pwr_ret[2] = 0;
+    meter.pwr_tot_con = 0;
+    meter.pwr_tot_ret = 0;
+    meter.pwr_phase_valid = false;
     meter.gas = NAN;
 
     float v;
@@ -523,6 +526,7 @@ void decodeTelegram()
 
     if (sx631GetValue("1-0:21.7.0", v) && isfinite(v)) {
       meter.pwr_con[0] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:41.7.0", v) && isfinite(v)) {
@@ -535,6 +539,7 @@ void decodeTelegram()
 
     if (sx631GetValue("1-0:22.7.0", v) && isfinite(v)) {
       meter.pwr_ret[0] = (long)roundf(v * 1000.0f);
+      meter.pwr_phase_valid = true;
     }
 
     if (sx631GetValue("1-0:42.7.0", v) && isfinite(v)) {
@@ -543,6 +548,16 @@ void decodeTelegram()
 
     if (sx631GetValue("1-0:62.7.0", v) && isfinite(v)) {
       meter.pwr_ret[2] = (long)roundf(v * 1000.0f);
+    }
+
+    // SIGNED total instantaneous power from the meter's own registers.
+    // (OBIS 1.7.0 import / 2.7.0 export; import positive, export negative.)
+    if (sx631GetValue("1-0:1.7.0", v) && isfinite(v)) {
+      meter.pwr_tot_con = totalPowerToSignedWatts(v);
+    }
+
+    if (sx631GetValue("1-0:2.7.0", v) && isfinite(v)) {
+      meter.pwr_tot_ret = totalPowerToSignedWatts(v);
     }
 
     // Decode the complete E.ON register set.
@@ -554,6 +569,7 @@ void decodeTelegram()
     consoleOut("2.8.2 = " + String(meter.ret_ht, 3) + " kWh");
     consoleOut("P1=" + String(meter.pwr_con[0]) + " W P2=" + String(meter.pwr_con[1]) + " W P3=" + String(meter.pwr_con[2]) + " W");
     consoleOut("Export P1=" + String(meter.pwr_ret[0]) + " W P2=" + String(meter.pwr_ret[1]) + " W P3=" + String(meter.pwr_ret[2]) + " W");
+    consoleOut("TOT +P=" + String(meter.pwr_tot_con) + " W -P=" + String(meter.pwr_tot_ret) + " W");
 
     eventSend(2);
     sprintf(timeStamp, "%02d/%02d %02d:%02d", day(), month(), hour(), minute());

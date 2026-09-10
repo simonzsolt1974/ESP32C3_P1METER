@@ -178,9 +178,23 @@ server.on("/get.Data", HTTP_GET, [](AsyncWebServerRequest *request) {
  
     float enReturn = meter.ret_ht + meter.ret_lt;
     float enCons   = meter.con_ht + meter.con_lt;
-    //uint16_t Power = meter.pwr_con[0] - meter.pwr_ret[0] + meter.pwr_con[1] - meter.pwr_ret[1] + meter.pwr_con[2] - meter.pwr_ret[2];
-    
-    
+
+    //
+    // SIGNED instantaneous phase power in W (import +, export -).
+    // Values come directly from the decoded telegram registers:
+    //   per phase : 21.7.0/22.7.0, 41.7.0/42.7.0, 61.7.0/62.7.0
+    //   total     : 1.7.0 (import) and 2.7.0 (export)
+    // The E.ON Hungary SX631/S34U18 firmware does NOT transmit per-phase
+    // power registers. When none were received (pwr_phase_valid == false)
+    // all three rows show the meter's real SIGNED total instead of zeros;
+    // nothing is invented or estimated.
+    //
+    int32_t pwr1 = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
+    int32_t pwr2 = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
+    int32_t pwr3 = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
+    int32_t pwrT = (int32_t)meter.pwr_tot_con - (int32_t)meter.pwr_tot_ret;
+    if (!meter.pwr_phase_valid) pwr1 = pwr2 = pwr3 = pwrT;
+
     root["timestamp"] = String(timeStamp);
 
     root["CON_HT"] = round3(meter.con_ht);
@@ -189,17 +203,22 @@ server.on("/get.Data", HTTP_GET, [](AsyncWebServerRequest *request) {
     root["RET_HT"] = round3(meter.ret_ht);
     root["RET_LT"] = round3(meter.ret_lt);
     
-    root["PWRC1"] = round0(meter.pwr_con[0]); 
-    root["PWRR1"] = round0(meter.pwr_ret[0]);
-    root["PWRC2"] = round0(meter.pwr_con[1]); 
-    root["PWRR2"] = round0(meter.pwr_ret[1]);
-    root["PWRC3"] = round0(meter.pwr_con[2]); 
-    root["PWRR3"] = round0(meter.pwr_ret[2]);
+    // integer watts: serialize directly, round0() would round -344 to -343
+    root["PWRP1"] = pwr1;
+    root["PWRP2"] = pwr2;
+    root["PWRP3"] = pwr3;
+    root["PWRPTOT"] = pwrT;
+    root["phasePwr"] = meter.pwr_phase_valid;
+    // per-phase import/export split (only meaningful when phasePwr)
+    root["PWRC1"] = meter.pwr_con[0];
+    root["PWRR1"] = meter.pwr_ret[0];
+    root["PWRC2"] = meter.pwr_con[1];
+    root["PWRR2"] = meter.pwr_ret[1];
+    root["PWRC3"] = meter.pwr_con[2];
+    root["PWRR3"] = meter.pwr_ret[2];
     
     root["enR"] = round3(enReturn); 
     root["enC"] = round3(enCons); 
-    //root["aPo"] = round0(Power); 
-    root["gAs"] = round3(meter.gas); 
     root["threeP"] = threePhase; 
     root["rm"] = remote;
     serializeJson(root, * response);
@@ -231,18 +250,28 @@ server.on("/api/v1/data", HTTP_GET, [](AsyncWebServerRequest *request)
     root["total_power_export_t1_kwh"] = round3(meter.ret_ht); // tariff 1
     root["total_power_export_t2_kwh"] = round3(meter.ret_lt); // tariff 2   
     // bower balance calculations
-    float pwr_l1 = meter.pwr_con[0] - meter.pwr_ret[0];
-    float pwr_l2 = meter.pwr_con[1] - meter.pwr_ret[1];
-    float pwr_l3 = meter.pwr_con[2] - meter.pwr_ret[2];
-    float pwr_tot = pwr_l1 + pwr_l2 + pwr_l3; 
+    // integer watts serialized directly: round0() truncates negatives
+    // (e.g. -344 W became -343 W) because it adds +0.5 before the cast
+    int32_t pwr_l1 = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
+    int32_t pwr_l2 = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
+    int32_t pwr_l3 = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
+    int32_t pwr_tot;
+    if (meter.pwr_phase_valid) {
+      pwr_tot = pwr_l1 + pwr_l2 + pwr_l3;
+    } else {
+      // meter transmits no per-phase power: use its own signed total
+      pwr_l1 = pwr_l2 = pwr_l3 =
+        (int32_t)meter.pwr_tot_con - (int32_t)meter.pwr_tot_ret;
+      pwr_tot = pwr_l1;
+    }
     
     // in a 1 phase meter active_power_w is equal to active_power_l1_w
-    root["active_power_w"]    = round0(pwr_tot); // balance of ret and con of all 3 phases
-    root["active_power_l1_w"] = round0(pwr_l1);  // balance of ret & con
+    root["active_power_w"]    = pwr_tot; // balance of ret and con of all 3 phases
+    root["active_power_l1_w"] = pwr_l1;  // balance of ret & con
     if(threePhase)
         {
-          root["active_power_l2_w"]  = round0(pwr_l2); // balance of ret & con
-          root["active_power_l3_w"]  = round0(pwr_l3); // balance of ret & con
+          root["active_power_l2_w"]  = pwr_l2; // balance of ret & con
+          root["active_power_l3_w"]  = pwr_l3; // balance of ret & con
         }
     
     String jsonString;

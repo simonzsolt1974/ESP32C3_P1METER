@@ -142,6 +142,11 @@ DNSServer dnsServer;
 #define OBIS_POWER_C3 "1-0:61.7.0("
 #define OBIS_POWER_R3 "1-0:62.7.0("
 
+// Total instantaneous active power. The E.ON Hungary SX631/S34U18 firmware
+// sends these but NOT the per-phase 21/41/61/22/42/62 registers.
+#define OBIS_POWER_TOT_CON "1-0:1.7.0("
+#define OBIS_POWER_TOT_RET "1-0:2.7.0("
+
 #define OBIS_GAS      "0-1:24.2.1("
 
 struct MeterData {
@@ -152,6 +157,14 @@ struct MeterData {
     float   ret_ht;
     uint16_t   pwr_con[3];
     uint16_t   pwr_ret[3];
+    // Signed total instantaneous power in W (import +, export -).
+    // Kept separately from the per-phase arrays because some meters
+    // (E.ON Hungary SX631/S34U18) transmit no per-phase power registers.
+    int32_t pwr_tot_con;
+    int32_t pwr_tot_ret;
+    // true when the telegram contained at least one per-phase power
+    // register (21.7.0/41.7.0/61.7.0 or 22.7.0/42.7.0/62.7.0).
+    bool pwr_phase_valid;
     float   gas;
 };
 MeterData meter;

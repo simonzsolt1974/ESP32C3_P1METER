@@ -39,6 +39,9 @@ void parseTelegram()
   meter.pwr_ret[0] = 0;
   meter.pwr_ret[1] = 0;
   meter.pwr_ret[2] = 0;
+  meter.pwr_tot_con = 0;
+  meter.pwr_tot_ret = 0;
+  meter.pwr_phase_valid = false;
   meter.gas = NAN;
 
   const char *p = teleGram;
@@ -68,26 +71,40 @@ void parseTelegram()
     else if (lineHasObis(p, OBIS_POWER_C1))
     {
       meter.pwr_con[0] = powerToWatts(parseValue(p, OBIS_POWER_C1));
+      meter.pwr_phase_valid = true;
     }
     else if (lineHasObis(p, OBIS_POWER_R1))
     {
       meter.pwr_ret[0] = powerToWatts(parseValue(p, OBIS_POWER_R1));
+      meter.pwr_phase_valid = true;
     }
     else if (lineHasObis(p, OBIS_POWER_C2))
     {
       meter.pwr_con[1] = powerToWatts(parseValue(p, OBIS_POWER_C2));
+      meter.pwr_phase_valid = true;
     }
     else if (lineHasObis(p, OBIS_POWER_R2))
     {
       meter.pwr_ret[1] = powerToWatts(parseValue(p, OBIS_POWER_R2));
+      meter.pwr_phase_valid = true;
     }
     else if (lineHasObis(p, OBIS_POWER_C3))
     {
       meter.pwr_con[2] = powerToWatts(parseValue(p, OBIS_POWER_C3));
+      meter.pwr_phase_valid = true;
     }
     else if (lineHasObis(p, OBIS_POWER_R3))
     {
       meter.pwr_ret[2] = powerToWatts(parseValue(p, OBIS_POWER_R3));
+      meter.pwr_phase_valid = true;
+    }
+    else if (lineHasObis(p, OBIS_POWER_TOT_CON))
+    {
+      meter.pwr_tot_con = totalPowerToSignedWatts(parseValue(p, OBIS_POWER_TOT_CON));
+    }
+    else if (lineHasObis(p, OBIS_POWER_TOT_RET))
+    {
+      meter.pwr_tot_ret = totalPowerToSignedWatts(parseValue(p, OBIS_POWER_TOT_RET));
     }
     else if (lineHasObis(p, OBIS_GAS))
     {
@@ -142,6 +159,22 @@ uint16_t powerToWatts(float kw)
     return 65535;
 
   return (uint16_t)(watts + 0.5f);
+}
+
+/*
+ * Total instantaneous active power (OBIS 1.7.0 / 2.7.0), expressed in kW.
+ * Returns SIGNED watts: import positive, export negative.
+ * The meter transmits only one of the two at a meaningful magnitude; the
+ * other register reads ~0, so con - ret yields the signed balance.
+ */
+int32_t totalPowerToSignedWatts(float kw)
+{
+  if (!isfinite(kw)) return 0;
+
+  float watts = kw * 1000.0f;
+  if (watts >  2147483.0f) watts =  2147483.0f;
+  if (watts < -2147483.0f) watts = -2147483.0f;
+  return (int32_t)(watts + (watts >= 0 ? 0.5f : -0.5f));
 }
 
 float parseValue(const char *p, const char *obis)
