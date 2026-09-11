@@ -332,7 +332,9 @@ void setup() {
 
 //  // ****************** mqtt init *********************
        MQTT_Client.setKeepAlive(150);
-       MQTT_Client.setBufferSize(512);
+       MQTT_Client.setBufferSize(1280); // must cover the full toMQTT payload (1024)
+                                        // plus topic/headers; 512 rejected the
+                                        // ~524-byte format-2 packet (publish FAILED)
        MQTT_Client.setServer(Mqtt_Broker, atoi(Mqtt_Port) );
        MQTT_Client.setCallback ( MQTT_Receive_Callback ) ;
 

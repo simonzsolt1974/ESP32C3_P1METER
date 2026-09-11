@@ -124,6 +124,15 @@ void sendMqtt(bool gas) {
   char toMQTT[1024] = {0};
 
   /*
+   * The payload is built by one snprintf below. snprintf returns the length
+   * the payload WOULD have had, so it doubles as a truncation guard: if it
+   * is >= sizeof(toMQTT) the JSON in toMQTT is incomplete. A truncated
+   * packet must never be published (the broker/HA would receive broken
+   * JSON); this check is what PubSubClient's packet-size check cannot do.
+   */
+  size_t toMqttLen = 0;
+
+  /*
    * Actual import/export power in W.
    *
    * When the meter transmits per-phase power registers (legacy meters),
@@ -225,7 +234,7 @@ void sendMqtt(bool gas) {
           return;
         }
 
-        snprintf(
+        toMqttLen = snprintf(
           toMQTT, sizeof(toMQTT),
           "{\"idx\":%d,\"nvalue\":0,\"svalue\":\"%.2f;%.2f;%.2f;%.2f;%lu;%lu\"}",
           el_Idx,
@@ -244,7 +253,7 @@ void sendMqtt(bool gas) {
           return;
         }
 
-        snprintf(
+        toMqttLen = snprintf(
           toMQTT, sizeof(toMQTT),
           "{\"idx\":%d,\"nvalue\":0,\"svalue\":\"%.3f;\"}",
           gas_Idx,
@@ -271,7 +280,7 @@ void sendMqtt(bool gas) {
         return;
       }
 
-      snprintf(
+      toMqttLen = snprintf(
         toMQTT, sizeof(toMQTT),
         "{"
         "\"econ_lt\":%.3f,"
@@ -338,7 +347,7 @@ void sendMqtt(bool gas) {
        * field6 = total export W
        * field7 = gas
        */
-      snprintf(
+      toMqttLen = snprintf(
         toMQTT, sizeof(toMQTT),
         "field1=%.3f&field2=%.3f&field3=%.3f&field4=%.3f&field5=%lu&field6=%lu&field7=%.3f&status=MQTTPUBLISH",
         mqttFinite(meter.con_lt),
@@ -358,7 +367,11 @@ void sendMqtt(bool gas) {
   }
 
   if (mqttConnect()) {
-    if (MQTT_Client.publish(Mqtt_send, toMQTT, reTain)) {
+    if (toMqttLen >= sizeof(toMQTT)) {
+      consoleOut("mqtt publish SKIPPED: payload truncated (" +
+                 String((unsigned)toMqttLen) + " >= " +
+                 String((unsigned)sizeof(toMQTT)) + ") - raise toMQTT and buffer");
+    } else if (MQTT_Client.publish(Mqtt_send, toMQTT, reTain)) {
       consoleOut("mqtt publish OK");
     } else {
       consoleOut("mqtt publish FAILED");
