@@ -554,9 +554,11 @@ void decodeTelegram()
      *
      * The PF registers (33/53/73.7.0) are UNSIGNED magnitudes and do NOT
      * encode import/export direction - the S34U18 telegram has no
-     * per-phase direction register. The calculated values are therefore
-     * positive magnitudes; the sign of the balance comes exclusively from
-     * 1.7.0 - 2.7.0. Nothing here invents a per-phase sign.
+     * per-phase direction register. The U x I x PF results are therefore
+     * magnitudes; the SIGN is applied afterwards from the meter's own
+     * signed balance (1.7.0 - 2.7.0): importing -> positive, exporting ->
+     * negative. One direction for all three phases, taken from the meter;
+     * no per-phase sign is invented from PF or anything else.
      *
      * A phase is only published when its voltage and power factor were
      * actually received; meter.pwr_phase_calculated marks the values as
@@ -583,6 +585,18 @@ void decodeTelegram()
       meter.pwr_phase_calculated = true;
     } else {
       meter.pwr_calc[2] = 0;
+    }
+
+    /*
+     * Apply the meter's own direction to the calculated phase powers:
+     * 1.7.0 - 2.7.0 < 0 means the meter is exporting, so all three phase
+     * values become negative; otherwise they stay positive (import).
+     * The magnitudes above are never changed, only their sign.
+     */
+    if ((meter.pwr_tot_con - meter.pwr_tot_ret) < 0) {
+      meter.pwr_calc[0] = -meter.pwr_calc[0];
+      meter.pwr_calc[1] = -meter.pwr_calc[1];
+      meter.pwr_calc[2] = -meter.pwr_calc[2];
     }
 
     consoleOut("1.8.1 = " + String(meter.con_lt, 3) + " kWh");
