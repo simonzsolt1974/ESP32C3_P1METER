@@ -153,7 +153,7 @@ struct MeterData {
     float   con_ht;
     float   ret_lt;
     float   ret_ht;
-    uint16_t   pwr_con[3];
+    uint16_t   pwr_con[3];   // legacy DSMR meters: direct 21/22,41/42,61/62.7.0 W
     uint16_t   pwr_ret[3];
     // Signed total instantaneous power in W (import +, export -).
     // Kept separately from the per-phase arrays because some meters
@@ -163,12 +163,15 @@ struct MeterData {
     // true when the telegram contained at least one per-phase power
     // register (21.7.0/41.7.0/61.7.0 or 22.7.0/42.7.0/62.7.0).
     bool pwr_phase_valid;
-    // Signed per-phase power in W CALCULATED as U x I x PF from the voltage
-    // (32/52/72.7.0), current (31/51/71.7.0) and power-factor (33/53/73.7.0)
-    // registers. Used ONLY when the meter transmits no direct per-phase
-    // power registers (the E.ON Hungary SX631/S34U18 does not).
-    // 0 = phase unavailable. Direct meter values always take priority.
-    int32_t pwr_calc[3];
+    // Per-phase active power in W for the E.ON Hungary Sanxing SX631/S34U18.
+    // That meter transmits NO per-phase active-power registers, so these
+    // values are always CALCULATED per phase as U x I x PF from its own
+    // voltage (32/52/72.7.0), current (31/51/71.7.0) and power-factor
+    // (33/53/73.7.0) registers. Each phase uses only its own U/I/PF; no
+    // phase is copied from another and the total is never distributed over
+    // the phases. Float on purpose: fractional watts are preserved.
+    // 0 = phase unavailable.
+    float pwr_calc[3];
     // true when pwr_calc[] holds CALCULATED values (source = U x I x PF);
     // false when phase values come straight from the meter or are absent.
     bool pwr_phase_calculated;

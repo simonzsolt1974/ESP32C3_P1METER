@@ -10,9 +10,13 @@
  * - Flushes stale UART data BEFORE enabling the P1 output.
  * - Keeps the existing project's parseTelegram()/MQTT/web code compatible.
  * - Adds a complete SX631 register decoder for the E.ON/Hungarian P1 set,
- *   including L1/L2/L3 voltage, current, import/export power and power factor.
- *   Reactive energy/reactive power are deliberately NOT decoded and are not
- *   part of the SX631Registers struct (MQTT format 2 must not reference them).
+ *   including L1/L2/L3 voltage, current, total import/export power and
+ *   power factor. Per-phase active power is CALCULATED as U x I x PF:
+ *   the S34U18 transmits no per-phase active-power registers at all, so
+ *   the decoder must not look for 21/41/61.7.0 (import) or 22/42/62.7.0
+ *   (export). Reactive energy/reactive power are deliberately NOT decoded
+ *   and are not part of the SX631Registers struct (MQTT format 2 must not
+ *   reference them).
  *
  * SX631/S34U18: 115200 8N1, inverted RX.
  */
@@ -239,16 +243,6 @@ bool read_into_array() {
  *   1-0:51.7.0  L2
  *   1-0:71.7.0  L3
  *
- * PHASE ACTIVE IMPORT POWER:
- *   1-0:21.7.0  L1
- *   1-0:41.7.0  L2
- *   1-0:61.7.0  L3
- *
- * PHASE ACTIVE EXPORT POWER:
- *   1-0:22.7.0  L1
- *   1-0:42.7.0  L2
- *   1-0:62.7.0  L3
- *
  * TOTAL ACTIVE POWER:
  *   1-0:1.7.0   total import
  *   1-0:2.7.0   total export
@@ -262,19 +256,22 @@ bool read_into_array() {
  * FREQUENCY:
  *   1-0:14.7.0
  *
+ * PER-PHASE ACTIVE POWER:
+ *   The S34U18 transmits NO per-phase active-power registers
+ *   (no 1-0:21.7.0/41.7.0/61.7.0 import, no 1-0:22.7.0/42.7.0/62.7.0
+ *   export). Do NOT expect or decode them for this meter.
+ *
  * Reactive-energy / reactive-power registers are deliberately NOT decoded.
  *
- * PHASE POWER SOURCE PRIORITY:
- *   1. METER      - direct per-phase active-power registers
- *                   (21/22.7.0 L1, 41/42.7.0 L2, 61/62.7.0 L3) when the
- *                   meter transmits them (legacy DSMR meters).
- *   2. CALCULATED - when the meter sends no direct phase-power registers
- *                   (E.ON Hungary SX631/S34U18), the phase power is
- *                   calculated as U x I x PF from 32/52/72.7.0,
- *                   31/51/71.7.0 and 33/53/73.7.0. The flag
- *                   meter.pwr_phase_calculated marks this source so the
- *                   web/API/MQTT layers can label it instead of passing
- *                   calculated values off as direct meter values.
+ * PHASE POWER SOURCE:
+ *   For the E.ON Hungary SX631/S34U18 the phase active power is always
+ *   CALCULATED as U x I x PF from the phase registers the meter DOES
+ *   transmit (32/52/72.7.0, 31/51/71.7.0 and 33/53/73.7.0). The flag
+ *   meter.pwr_phase_calculated marks this source so the web/API/MQTT
+ *   layers can label the values as calculated instead of presenting them
+ *   as direct meter values. The meter-reported TOTAL power (1.7.0/2.7.0)
+ *   is kept completely separate and is never replaced by the calculated
+ *   phase sum.
  *
  * The E.ON documentation writes the full OBIS with .255, while the actual
  * P1 telegram uses the shortened form. The helper below accepts both forms.
@@ -309,15 +306,9 @@ struct SX631Registers {
   float current_l2;
   float current_l3;
 
-  // Active power, kW
+  // Total active power, kW
   float power_imp_total;
   float power_exp_total;
-  float power_imp_l1;
-  float power_imp_l2;
-  float power_imp_l3;
-  float power_exp_l1;
-  float power_exp_l2;
-  float power_exp_l3;
 
   // Frequency and power factor
   float frequency;
@@ -431,16 +422,6 @@ void decodeAllSX631Registers()
   sx631GetValue("1-0:1.7.0", sx631.power_imp_total);
   sx631GetValue("1-0:2.7.0", sx631.power_exp_total);
 
-  // Direct phase active import power, kW
-  sx631GetValue("1-0:21.7.0", sx631.power_imp_l1);
-  sx631GetValue("1-0:41.7.0", sx631.power_imp_l2);
-  sx631GetValue("1-0:61.7.0", sx631.power_imp_l3);
-
-  // Direct phase active export power, kW
-  sx631GetValue("1-0:22.7.0", sx631.power_exp_l1);
-  sx631GetValue("1-0:42.7.0", sx631.power_exp_l2);
-  sx631GetValue("1-0:62.7.0", sx631.power_exp_l3);
-
   // Frequency and power factor
   sx631GetValue("1-0:14.7.0", sx631.frequency);
   sx631GetValue("1-0:13.7.0", sx631.power_factor);
@@ -462,9 +443,9 @@ void decodeAllSX631Registers()
   consoleOut("2.8.1    = " + String(sx631.e_exp_t1, 3) + " kWh");
   consoleOut("2.8.2    = " + String(sx631.e_exp_t2, 3) + " kWh");
   consoleOut("15.8.0   = " + String(sx631.e_abs, 3) + " kWh");
-  consoleOut("L1: U=" + String(sx631.voltage_l1, 2) + " V I=" + String(sx631.current_l1, 2) + " A +P=" + String(sx631.power_imp_l1, 3) + " kW -P=" + String(sx631.power_exp_l1, 3) + " kW");
-  consoleOut("L2: U=" + String(sx631.voltage_l2, 2) + " V I=" + String(sx631.current_l2, 2) + " A +P=" + String(sx631.power_imp_l2, 3) + " kW -P=" + String(sx631.power_exp_l2, 3) + " kW");
-  consoleOut("L3: U=" + String(sx631.voltage_l3, 2) + " V I=" + String(sx631.current_l3, 2) + " A +P=" + String(sx631.power_imp_l3, 3) + " kW -P=" + String(sx631.power_exp_l3, 3) + " kW");
+  consoleOut("L1: U=" + String(sx631.voltage_l1, 2) + " V I=" + String(sx631.current_l1, 2) + " A PF=" + String(sx631.power_factor_l1, 3));
+  consoleOut("L2: U=" + String(sx631.voltage_l2, 2) + " V I=" + String(sx631.current_l2, 2) + " A PF=" + String(sx631.power_factor_l2, 3));
+  consoleOut("L3: U=" + String(sx631.voltage_l3, 2) + " V I=" + String(sx631.current_l3, 2) + " A PF=" + String(sx631.power_factor_l3, 3));
   consoleOut("TOTAL: +P=" + String(sx631.power_imp_total, 3) + " kW -P=" + String(sx631.power_exp_total, 3) + " kW");
   consoleOut("FREQ     = " + String(sx631.frequency, 2) + " Hz");
   consoleOut("PF total = " + String(sx631.power_factor, 3));
@@ -532,49 +513,14 @@ void decodeTelegram()
     }
 
     /*
-     * DIRECT meter values:
-     *   21.7.0 -> L1 import power
-     *   41.7.0 -> L2 import power
-     *   61.7.0 -> L3 import power
-     *   22.7.0 -> L1 export power
-     *   42.7.0 -> L2 export power
-     *   62.7.0 -> L3 export power
-     *
-     * The meter reports kW. meter.pwr_* stores W.
-     * This is only a unit conversion; no U x I calculation is performed.
+     * The S34U18 transmits NO per-phase active-power registers.
+     * The old code decoded 21/41/61.7.0 and 22/42/62.7.0 here, but those
+     * OBIS values do not exist in this telegram: with a S34U18, pwr_con[]
+     * and pwr_ret[] would stay 0 on the web page while 1.7.0/2.7.0 carry
+     * real power. Per-phase power is therefore ALWAYS calculated below
+     * from the phase registers the meter actually sends. Never re-enable
+     * a 21/41/61/22/42/62.7.0 read for meterType 3.
      */
-
-    // powerToWatts() performs the kW -> W conversion AND clamps to the
-    // uint16_t range of meter.pwr_con[]/pwr_ret[] (a raw cast could wrap).
-    if (sx631GetValue("1-0:21.7.0", v) && isfinite(v)) {
-      meter.pwr_con[0] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
-
-    if (sx631GetValue("1-0:41.7.0", v) && isfinite(v)) {
-      meter.pwr_con[1] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
-
-    if (sx631GetValue("1-0:61.7.0", v) && isfinite(v)) {
-      meter.pwr_con[2] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
-
-    if (sx631GetValue("1-0:22.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[0] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
-
-    if (sx631GetValue("1-0:42.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[1] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
-
-    if (sx631GetValue("1-0:62.7.0", v) && isfinite(v)) {
-      meter.pwr_ret[2] = powerToWatts(v);
-      meter.pwr_phase_valid = true;
-    }
 
     // SIGNED total instantaneous power from the meter's own registers.
     // (OBIS 1.7.0 import / 2.7.0 export; import positive, export negative.)
@@ -590,79 +536,66 @@ void decodeTelegram()
     decodeAllSX631Registers();
 
     /*
-     * PHASE POWER SOURCE RESOLUTION.
+     * PHASE ACTIVE POWER: always CALCULATED for the S34U18.
      *
-     * Priority 1 (METER): when the telegram contained direct per-phase
-     * active-power registers, the signed phase power is the import/export
-     * balance of those registers (pwr_con/pwr_ret are already in W).
+     *   P1 = U1 x I1 x PF1   (32.7.0 x 31.7.0 x 33.7.0)
+     *   P2 = U2 x I2 x PF2   (52.7.0 x 51.7.0 x 53.7.0)
+     *   P3 = U3 x I3 x PF3   (72.7.0 x 71.7.0 x 73.7.0)
      *
-     * Priority 2 (CALCULATED): otherwise calculate the phase power as
-     * U x I x PF (32/52/72.7.0 x 31/51/71.7.0 x 33/53/73.7.0).
+     * Each phase uses only its OWN voltage, current and power factor, and
+     * is calculated independently of the other two phases. Values are in
+     * watts, one decimal (float math, no rounding to whole kW). No phase
+     * is ever copied into another and the total is never distributed over
+     * the phases, so L1/L2/L3 stay three distinct values.
      *
-     * IMPORTANT: the PF registers (33/53/73.7.0) are UNSIGNED magnitudes
-     * (e.g. 0.951). They do NOT encode import/export direction - the
-     * SX631 telegram simply has no per-phase direction register. The
-     * calculated phase values are therefore positive W magnitudes, and
-     * the total sign comes exclusively from 1.7.0 - 2.7.0. Downstream
-     * consumers must use the total (and phase_power_source) to interpret
-     * them; nothing here invents a per-phase sign.
+     * The result does NOT have to equal the meter's 1.7.0/2.7.0 total
+     * (integer current readings and rounding make them differ); it is
+     * never scaled to force a match.
      *
-     * A phase is only calculated when its voltage and power factor were
-     * actually received; pwr_phase_calculated marks the whole set as
-     * calculated so nothing is ever labelled as a direct meter value.
+     * The PF registers (33/53/73.7.0) are UNSIGNED magnitudes and do NOT
+     * encode import/export direction - the S34U18 telegram has no
+     * per-phase direction register. The calculated values are therefore
+     * positive magnitudes; the sign of the balance comes exclusively from
+     * 1.7.0 - 2.7.0. Nothing here invents a per-phase sign.
      *
-     * The TOTAL instantaneous power is NEVER distributed over the phases
-     * and the total is never copied into L1/L2/L3.
+     * A phase is only published when its voltage and power factor were
+     * actually received; meter.pwr_phase_calculated marks the values as
+     * calculated so no consumer ever presents them as direct meter data.
      */
-    if (meter.pwr_phase_valid) {
-      // Source = METER: signed balance of the direct import/export registers.
-      meter.pwr_calc[0] = (int32_t)meter.pwr_con[0] - (int32_t)meter.pwr_ret[0];
-      meter.pwr_calc[1] = (int32_t)meter.pwr_con[1] - (int32_t)meter.pwr_ret[1];
-      meter.pwr_calc[2] = (int32_t)meter.pwr_con[2] - (int32_t)meter.pwr_ret[2];
-      meter.pwr_phase_calculated = false;
+    meter.pwr_phase_calculated = false;
+
+    if (sx631.voltage_l1 > 0.0f && sx631.power_factor_l1 != 0.0f) {
+      meter.pwr_calc[0] = sx631.voltage_l1 * sx631.current_l1 * sx631.power_factor_l1;
+      meter.pwr_phase_calculated = true;
     } else {
-      // Source = CALCULATED: U x I x PF per phase.
-      meter.pwr_phase_calculated = false;
+      meter.pwr_calc[0] = 0;
+    }
 
-      if (sx631.voltage_l1 > 0.0f && sx631.power_factor_l1 != 0.0f) {
-        meter.pwr_calc[0] =
-          (int32_t)roundf(sx631.voltage_l1 * sx631.current_l1 * sx631.power_factor_l1);
-        meter.pwr_phase_calculated = true;
-      } else {
-        meter.pwr_calc[0] = 0;
-      }
+    if (sx631.voltage_l2 > 0.0f && sx631.power_factor_l2 != 0.0f) {
+      meter.pwr_calc[1] = sx631.voltage_l2 * sx631.current_l2 * sx631.power_factor_l2;
+      meter.pwr_phase_calculated = true;
+    } else {
+      meter.pwr_calc[1] = 0;
+    }
 
-      if (sx631.voltage_l2 > 0.0f && sx631.power_factor_l2 != 0.0f) {
-        meter.pwr_calc[1] =
-          (int32_t)roundf(sx631.voltage_l2 * sx631.current_l2 * sx631.power_factor_l2);
-        meter.pwr_phase_calculated = true;
-      } else {
-        meter.pwr_calc[1] = 0;
-      }
-
-      if (sx631.voltage_l3 > 0.0f && sx631.power_factor_l3 != 0.0f) {
-        meter.pwr_calc[2] =
-          (int32_t)roundf(sx631.voltage_l3 * sx631.current_l3 * sx631.power_factor_l3);
-        meter.pwr_phase_calculated = true;
-      } else {
-        meter.pwr_calc[2] = 0;
-      }
+    if (sx631.voltage_l3 > 0.0f && sx631.power_factor_l3 != 0.0f) {
+      meter.pwr_calc[2] = sx631.voltage_l3 * sx631.current_l3 * sx631.power_factor_l3;
+      meter.pwr_phase_calculated = true;
+    } else {
+      meter.pwr_calc[2] = 0;
     }
 
     consoleOut("1.8.1 = " + String(meter.con_lt, 3) + " kWh");
     consoleOut("1.8.2 = " + String(meter.con_ht, 3) + " kWh");
     consoleOut("2.8.1 = " + String(meter.ret_lt, 3) + " kWh");
     consoleOut("2.8.2 = " + String(meter.ret_ht, 3) + " kWh");
-    consoleOut("P1=" + String(meter.pwr_con[0]) + " W P2=" + String(meter.pwr_con[1]) + " W P3=" + String(meter.pwr_con[2]) + " W");
-    consoleOut("Export P1=" + String(meter.pwr_ret[0]) + " W P2=" + String(meter.pwr_ret[1]) + " W P3=" + String(meter.pwr_ret[2]) + " W");
     consoleOut("TOT +P=" + String(meter.pwr_tot_con) + " W -P=" + String(meter.pwr_tot_ret) + " W");
     consoleOut(
       String("phase power ") +
-      (meter.pwr_phase_valid ? "(meter)" :
-       meter.pwr_phase_calculated ? "(calculated U*I*PF)" : "(unavailable)") +
-      " L1=" + String(meter.pwr_calc[0]) +
-      " L2=" + String(meter.pwr_calc[1]) +
-      " L3=" + String(meter.pwr_calc[2]) + " W"
+      (meter.pwr_phase_calculated ? "(calculated U*I*PF)" : "(unavailable)") +
+      " L1=" + String(meter.pwr_calc[0], 1) +
+      " L2=" + String(meter.pwr_calc[1], 1) +
+      " L3=" + String(meter.pwr_calc[2], 1) + " W"
     );
 
     eventSend(2);

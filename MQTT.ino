@@ -165,20 +165,24 @@ void sendMqtt(bool gas) {
    * Best available SIGNED per-phase power (source priority: direct meter
    * registers first, then U x I x PF calculation) plus the source metadata
    * so consumers can label the values correctly.
+   *
+   * meter.pwr_calc[] is float W. Format with one decimal: the calculated
+   * S34U18 values are fractional (e.g. 450.9 vs 450.8 W) and a (long) cast
+   * would truncate two different phases into the same integer.
    */
   const char *phaseSrc;
   char p1PhStr[12], p2PhStr[12], p3PhStr[12];
 
   if (meter.pwr_phase_valid) {
     phaseSrc = "meter";
-    snprintf(p1PhStr, sizeof(p1PhStr), "%ld", (long)meter.pwr_calc[0]);
-    snprintf(p2PhStr, sizeof(p2PhStr), "%ld", (long)meter.pwr_calc[1]);
-    snprintf(p3PhStr, sizeof(p3PhStr), "%ld", (long)meter.pwr_calc[2]);
+    snprintf(p1PhStr, sizeof(p1PhStr), "%.1f", (double)meter.pwr_calc[0]);
+    snprintf(p2PhStr, sizeof(p2PhStr), "%.1f", (double)meter.pwr_calc[1]);
+    snprintf(p3PhStr, sizeof(p3PhStr), "%.1f", (double)meter.pwr_calc[2]);
   } else if (meter.pwr_phase_calculated) {
     phaseSrc = "calculated";
-    snprintf(p1PhStr, sizeof(p1PhStr), "%ld", (long)meter.pwr_calc[0]);
-    snprintf(p2PhStr, sizeof(p2PhStr), "%ld", (long)meter.pwr_calc[1]);
-    snprintf(p3PhStr, sizeof(p3PhStr), "%ld", (long)meter.pwr_calc[2]);
+    snprintf(p1PhStr, sizeof(p1PhStr), "%.1f", (double)meter.pwr_calc[0]);
+    snprintf(p2PhStr, sizeof(p2PhStr), "%.1f", (double)meter.pwr_calc[1]);
+    snprintf(p3PhStr, sizeof(p3PhStr), "%.1f", (double)meter.pwr_calc[2]);
   } else {
     phaseSrc = "unavailable";
     strcpy(p1PhStr, "null");
